@@ -1,0 +1,6 @@
+{
+  "name": "Prayer Times",
+  "description": "Premium Islamic prayer times, adhan alerts, Qibla compass, and digital tasbeeh counter.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
