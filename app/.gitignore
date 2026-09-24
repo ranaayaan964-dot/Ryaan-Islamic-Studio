@@ -1,0 +1,9 @@
+/build
+build/
+*.apk
+*.aab
+*.dex
+*.mp3
+*.m4a
+*.wav
+*.zip
