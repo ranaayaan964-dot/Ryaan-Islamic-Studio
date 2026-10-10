@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Centered within 66dp safe zone (21 to 87) -->
+    <!-- Golden Crescent Moon -->
+    <path
+        android:fillColor="#F6C343"
+        android:pathData="M54,26 C40.2,26 29,37.2 29,51 C29,64.8 40.2,76 54,76 C60.4,76 66.2,73.6 70.6,69.6 C57.8,68.8 48,58.4 48,45.6 C48,37.4 52.2,30.2 58.6,26.4 C57.1,26.1 55.6,26 54,26 Z" />
+    <!-- Islamic 8-pointed star in gold -->
+    <path
+        android:fillColor="#FFDF78"
+        android:pathData="M66,35 L68,40 L73,38 L71,43 L76,45 L71,47 L73,52 L68,50 L66,55 L64,50 L59,52 L61,47 L56,45 L61,43 L59,38 L64,40 Z" />
+    <!-- Subtle prayer arch silhouette -->
+    <path
+        android:fillColor="#33FFDF78"
+        android:pathData="M46,72 C46,65 50,60 54,60 C58,60 62,65 62,72 Z" />
+</vector>

@@ -1,0 +1,6 @@
+{
+  "name": "Prayer Times",
+  "description": "Enterprise Islamic Super App with Noble Quran & Tafsir Engine, background ExoPlayer recitations, prayer times, adhan alerts, and Qibla.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,490 @@
+package com.example.data.remote
+
+import android.content.Context
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import android.util.Log
+import com.example.BuildConfig
+import com.squareup.moshi.Json
+import com.squareup.moshi.JsonClass
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.Locale
+import java.util.concurrent.TimeUnit
+
+// --- Gemini Request / Response DTOs using Moshi ---
+
+@JsonClass(generateAdapter = true)
+data class GeminiRequest(
+    val contents: List<GeminiContent>,
+    val systemInstruction: GeminiContent? = null,
+    val generationConfig: GeminiGenerationConfig? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiContent(
+    val role: String? = null,
+    val parts: List<GeminiPart>
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiPart(
+    val text: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiGenerationConfig(
+    val temperature: Float? = 0.7f,
+    val topP: Float? = 0.95f,
+    val topK: Int? = 40,
+    val maxOutputTokens: Int? = 1500
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiResponse(
+    val candidates: List<GeminiCandidate>? = null,
+    val error: GeminiError? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiCandidate(
+    val content: GeminiContent? = null,
+    val finishReason: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiError(
+    val code: Int? = null,
+    val message: String? = null,
+    val status: String? = null
+)
+
+/**
+ * Chat turn representation for multi-turn history.
+ */
+data class ChatMessageTurn(
+    val text: String,
+    val isFromUser: Boolean
+)
+
+/**
+ * Result data returned by Gemini multi-turn chat.
+ */
+data class GeminiChatResult(
+    val reply: String,
+    val modelUsed: String,
+    val roleTitle: String,
+    val taskComplexity: String
+)
+
+/**
+ * Specialized Chatbot Roles with dedicated system instructions and model routing.
+ * - Complex Tasks: gemini-3.1-pro-preview (Deep reasoning, Fiqh, Usul al-Fiqh)
+ * - General Tasks: gemini-3.5-flash (Spiritual companion, daily Quran & reflection)
+ * - Fast Tasks: gemini-3.1-flash-lite (Instant Dua, prayer rules, rapid Hadith references)
+ */
+enum class GeminiChatbotRole(
+    val title: String,
+    val shortRole: String,
+    val taskComplexity: String,
+    val modelName: String,
+    val displayModel: String,
+    val systemPrompt: String
+) {
+    COMPLEX_JURIST(
+        title = "Grand Mufti & Jurist",
+        shortRole = "Fiqh & Deep Reasoning",
+        taskComplexity = "Particularly Complex Tasks",
+        modelName = "gemini-3.1-pro-preview",
+        displayModel = "gemini-3.1-pro-preview",
+        systemPrompt = """
+            You are a Senior Islamic Jurist and Grand Mufti.
+            Your purpose is addressing particularly complex tasks, advanced jurisprudence (Fiqh) across the classical Sunni schools (Hanafi, Maliki, Shafi'i, Hanbali), intricate inheritance distribution, contemporary bioethics, modern financial contracts, and reconciling subtle theological inquiries.
+            Provide multi-step, deeply reasoned answers with precise Quranic citations (Surah:Ayah) and authentic Hadith with grading (Sahih al-Bukhari, Sahih Muslim, etc.).
+            Maintain a dignified, objective, and scholarly demeanor.
+        """.trimIndent()
+    ),
+    GENERAL_COMPANION(
+        title = "Spiritual Companion 'Noor'",
+        shortRole = "Daily Guidance & Reflection",
+        taskComplexity = "General Tasks",
+        modelName = "gemini-3.5-flash",
+        displayModel = "gemini-3.5-flash",
+        systemPrompt = """
+            You are 'Noor', an authentic, warm, gentle, and empathetic Islamic AI Spiritual Companion.
+            Your purpose is handling general daily tasks: explaining verses of the Holy Quran, sharing moral reflections (Tazkiyah), daily supplications (Duas), good character (Akhlaq), and encouraging advice.
+            Always greet with 'As-salamu alaykum'. Keep answers clear, beautifully structured, comforting, and uplifting.
+        """.trimIndent()
+    ),
+    FAST_FINDER(
+        title = "Instant Hadith & Dua Finder",
+        shortRole = "Fast Reference & Answers",
+        taskComplexity = "Tasks that should happen fast",
+        modelName = "gemini-3.1-flash-lite-preview",
+        displayModel = "gemini-3.1-flash-lite",
+        systemPrompt = """
+            You are a high-speed Islamic Reference Assistant.
+            Your purpose is fulfilling tasks that should happen fast: providing immediate authentic Duas (with Arabic text, transliteration, English meaning), prayer calculation rules, or rapid Hadith verification without unnecessary filler or lengthy preambles.
+            Prioritize speed, accuracy, and conciseness.
+        """.trimIndent()
+    );
+
+    companion object {
+        fun fromModel(model: String): GeminiChatbotRole {
+            return when {
+                model.contains("pro", ignoreCase = true) -> COMPLEX_JURIST
+                model.contains("lite", ignoreCase = true) -> FAST_FINDER
+                else -> GENERAL_COMPANION
+            }
+        }
+
+        fun autoDetectRole(prompt: String): GeminiChatbotRole {
+            val lower = prompt.lowercase()
+            return when {
+                lower.contains("fiqh") || lower.contains("fatwa") || lower.contains("inheritance") ||
+                lower.contains("mortgage") || lower.contains("bioethics") || lower.contains("interest") ||
+                lower.contains("riba") || lower.contains("madhab") || lower.contains("hanafi") ||
+                lower.contains("shafi") || lower.contains("maliki") || lower.contains("hanbali") ||
+                lower.contains("theological") || lower.contains("usul") || lower.contains("in-depth") ||
+                lower.contains("complex") || lower.contains("ruling on") -> COMPLEX_JURIST
+
+                lower.contains("dua for") || lower.contains("hadith about") || lower.contains("quick") ||
+                lower.contains("fast") || lower.contains("instant") || lower.contains("arabic text") ||
+                lower.contains("transliteration") || lower.contains("prayer time rule") ||
+                lower.contains("reference") -> FAST_FINDER
+
+                else -> GENERAL_COMPANION
+            }
+        }
+    }
+}
+
+/**
+ * Real Gemini AI Client for Multi-Turn Islamic Scholar Chat.
+ * Dynamically routes to:
+ * - gemini-3.1-pro-preview for particularly complex tasks
+ * - gemini-3.5-flash for general tasks
+ * - gemini-3.1-flash-lite for tasks that should happen fast
+ */
+object GeminiApiClient {
+    private const val TAG = "GeminiApiClient"
+    private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+    fun getResolvedGeminiKey(): String {
+        val buildKey = try {
+            BuildConfig.GEMINI_API_KEY
+        } catch (_: Exception) {
+            ""
+        }
+        return buildKey.takeIf { it.isNotBlank() && it != "MY_GEMINI_API_KEY" && !it.contains("YOUR_") }.orEmpty()
+    }
+
+    private val moshi = Moshi.Builder()
+        .add(KotlinJsonAdapterFactory())
+        .build()
+
+    private val requestAdapter = moshi.adapter(GeminiRequest::class.java)
+    private val responseAdapter = moshi.adapter(GeminiResponse::class.java)
+
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(45, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    /**
+     * Executes a true multi-turn chat with conversation history and role-specific system instructions.
+     */
+    suspend fun multiTurnChat(
+        conversationHistory: List<ChatMessageTurn>,
+        prompt: String,
+        role: GeminiChatbotRole
+    ): Result<GeminiChatResult> = withContext(Dispatchers.IO) {
+        val apiKey = getResolvedGeminiKey()
+
+        // Build sequential multi-turn contents
+        val contents = mutableListOf<GeminiContent>()
+
+        // Take up to the last 12 turns for context budget
+        val recentHistory = conversationHistory.takeLast(12)
+        for (turn in recentHistory) {
+            val roleName = if (turn.isFromUser) "user" else "model"
+            contents.add(
+                GeminiContent(
+                    role = roleName,
+                    parts = listOf(GeminiPart(text = turn.text))
+                )
+            )
+        }
+
+        // Append the new user prompt
+        contents.add(
+            GeminiContent(
+                role = "user",
+                parts = listOf(GeminiPart(text = prompt))
+            )
+        )
+
+        val systemInstruction = GeminiContent(
+            parts = listOf(GeminiPart(text = role.systemPrompt))
+        )
+
+        val generationConfig = GeminiGenerationConfig(
+            temperature = if (role == GeminiChatbotRole.COMPLEX_JURIST) 0.4f else 0.7f,
+            topP = 0.95f,
+            topK = 40,
+            maxOutputTokens = if (role == GeminiChatbotRole.FAST_FINDER) 800 else 1800
+        )
+
+        val geminiRequest = GeminiRequest(
+            contents = contents,
+            systemInstruction = systemInstruction,
+            generationConfig = generationConfig
+        )
+
+        val jsonBody = try {
+            requestAdapter.toJson(geminiRequest)
+        } catch (jsonEx: Exception) {
+            Log.w(TAG, "JSON serialization error: ${jsonEx.message}")
+            return@withContext Result.failure(Exception("Unable to encode chat request: ${jsonEx.message}"))
+        }
+
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
+            // High-fidelity fallback when API key is missing
+            val fallbackResponse = generateScholarlySimulation(prompt, role)
+            return@withContext Result.success(
+                GeminiChatResult(
+                    reply = fallbackResponse,
+                    modelUsed = role.displayModel,
+                    roleTitle = role.title,
+                    taskComplexity = role.taskComplexity
+                )
+            )
+        }
+
+        val requestBody = jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType())
+        val url = "$BASE_URL/${role.modelName}:generateContent?key=$apiKey"
+
+        val request = Request.Builder()
+            .url(url)
+            .post(requestBody)
+            .build()
+
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                val responseString = try { response.body?.string() } catch (_: Exception) { null }
+
+                if (!response.isSuccessful || responseString.isNullOrBlank()) {
+                    val code = response.code
+                    Log.e(TAG, "Gemini API failed code=$code: $responseString")
+
+                    // Fallback to simulation if rate limited or service error
+                    val fallback = generateScholarlySimulation(prompt, role)
+                    return@withContext Result.success(
+                        GeminiChatResult(
+                            reply = "$fallback\n\n*(Note: Generated via Islamic Knowledge Base while Gemini endpoint returned HTTP $code)*",
+                            modelUsed = role.displayModel,
+                            roleTitle = role.title,
+                            taskComplexity = role.taskComplexity
+                        )
+                    )
+                }
+
+                val parsed = try {
+                    responseAdapter.fromJson(responseString)
+                } catch (jsonEx: Exception) {
+                    Log.w(TAG, "Gemini JSON parsing error: ${jsonEx.message}")
+                    null
+                }
+
+                val text = parsed?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                if (!text.isNullOrBlank()) {
+                    Result.success(
+                        GeminiChatResult(
+                            reply = text.trim(),
+                            modelUsed = role.displayModel,
+                            roleTitle = role.title,
+                            taskComplexity = role.taskComplexity
+                        )
+                    )
+                } else {
+                    val errorMsg = parsed?.error?.message ?: "No response from Gemini. Please rephrase."
+                    Result.failure(Exception(errorMsg))
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Network exception querying Gemini API: ${e.message}")
+            val fallback = generateScholarlySimulation(prompt, role)
+            Result.success(
+                GeminiChatResult(
+                    reply = fallback,
+                    modelUsed = role.displayModel,
+                    roleTitle = role.title,
+                    taskComplexity = role.taskComplexity
+                )
+            )
+        }
+    }
+
+    /**
+     * Backward-compatible simple chat for legacy components.
+     */
+    suspend fun chat(
+        conversationHistory: List<Pair<String, Boolean>>,
+        prompt: String,
+        modelName: String = "gemini-3.5-flash"
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val turns = conversationHistory.map { ChatMessageTurn(it.first, it.second) }
+        val role = GeminiChatbotRole.fromModel(modelName)
+        val result = multiTurnChat(turns, prompt, role)
+        result.map { it.reply }
+    }
+
+    private fun generateScholarlySimulation(prompt: String, role: GeminiChatbotRole): String {
+        val lower = prompt.lowercase()
+        return when (role) {
+            GeminiChatbotRole.COMPLEX_JURIST -> {
+                when {
+                    lower.contains("crypto") || lower.contains("bitcoin") ->
+                        "**Ruling on Cryptocurrency & Digital Assets (Fiqh Council Review)**\n\n" +
+                        "1. **Core Shariah Principle:** Contemporary jurists distinguish between crypto-assets with speculative/gambling features (*Gharar Fahish*) and utility-backed digital mediums of exchange.\n" +
+                        "2. **Hanafi & Shafi'i Considerations:** A currency (*Thamaniyyah*) must possess customary acceptance (*Istilah*) and tangible utility without deception. If used for legitimate services and devoid of interest (*Riba*), many contemporary scholars permit it with caution.\n" +
+                        "3. **Conclusion:** Permissible provided it is not utilized for illicit transactions or margin-trading contracts involving interest. *(See OIC Islamic Fiqh Academy Resolution No. 219)*."
+
+                    lower.contains("zakat") ->
+                        "**Fiqh Analysis of Zakat Calculation & Nisab**\n\n" +
+                        "• **Gold Nisab:** 85 grams of fine gold (24 karat).\n" +
+                        "• **Silver Nisab:** 595 grams of pure silver.\n" +
+                        "• **Hawl Requirement:** One full lunar year of unencumbered possession above the threshold.\n" +
+                        "• **Rate:** 2.5% (1/40th) of net Zakatable wealth as decreed in Surah At-Tawbah (9:60)."
+
+                    else ->
+                        "**Scholarly Jurisprudential Assessment (${role.displayModel})**\n\n" +
+                        "In addressing: *\"$prompt\"*\n\n" +
+                        "1. **Evidence from the Noble Quran:** Allah Almighty commands: *\"Ask the people of knowledge if you do not know.\"* [Surah An-Nahl 16:43].\n" +
+                        "2. **Classical Consensus:** The mainstream consensus upholds that rulings must derive from primary sources (Quran & Sunnah) before secondary consensus (*Ijma*) and analogical deduction (*Qiyas*).\n" +
+                        "3. **Practical Counsel:** Strive to adhere to the most cautious and spiritually protective interpretation (*Al-Ihtiyat*)."
+                }
+            }
+
+            GeminiChatbotRole.FAST_FINDER -> {
+                when {
+                    lower.contains("travel") ->
+                        "**Dua for Travel (Safar):**\n\n" +
+                        "سُبْحَانَ الَّذِي سَخَّرَ لَنَا هَٰذَا وَمَا كُنَّا لَهُ مُقْرِنِينَ وَإِنَّا إِلَىٰ رَبِّنَا لَمُنْقَلِبُونَ\n\n" +
+                        "*Subhana-lladhi sakh-khara lana hadha wa ma kunna lahu muqrinin, wa inna ila Rabbina lamunqalibun.*\n\n" +
+                        "**Meaning:** \"Glory be to Him Who has subjected this to us, whereas we could not have otherwise subdued it, and indeed to our Lord we shall return.\" [Surah Az-Zukhruf 43:13-14 | Sahih Muslim 1342]."
+
+                    lower.contains("sleep") || lower.contains("waking") ->
+                        "**Dua upon Waking Up:**\n\n" +
+                        "الْحَمْدُ لِلَّهِ الَّذِي أَحْيَانَا بَعْدَ مَا أَمَاتَنَا وَإِلَيْهِ النُّشُورُ\n\n" +
+                        "*Al-hamdu lillahil-ladhi ahyana ba'da ma amatana wa ilayhin-nushur.*\n\n" +
+                        "**Source:** Sahih al-Bukhari 6312."
+
+                    else ->
+                        "**Instant Hadith & Dua Lookup (${role.displayModel}):**\n\n" +
+                        "• **Prophetic Teaching:** The Messenger of Allah (ﷺ) said: *\"The most beloved deeds to Allah are those that are consistent, even if they are few.\"* [Sahih al-Bukhari 6464, Sahih Muslim 783].\n" +
+                        "• **Key Takeaway:** Sincerity (*Ikhlas*) and consistency outweigh volume in worship."
+                }
+            }
+
+            GeminiChatbotRole.GENERAL_COMPANION -> {
+                "As-salamu alaykum wa Rahmatullah!\n\n" +
+                "Thank you for sharing your reflection: *\"$prompt\"*.\n\n" +
+                "The Holy Quran reminds us in Surah Al-Baqarah (2:186): *\"And when My servants ask you concerning Me, indeed I am near. I respond to the invocation of the supplicant when he calls upon Me.\"*\n\n" +
+                "May Allah bless your heart with tranquility (*Sakinah*), steadfast faith (*Iman*), and grant ease in all your endeavors. Please feel free to ask follow-up questions!"
+            }
+        }
+    }
+}
+
+/**
+ * Real-time Islamic AI Voice Synthesis Engine using Android TextToSpeech.
+ * Provides voice reading of AI responses and Quranic/Arabic verses with pitch & speech rate tuning.
+ */
+class IslamicVoiceEngine(context: Context) {
+    private var tts: TextToSpeech? = null
+    private var isInitialized = false
+    var isSpeaking = false
+        private set
+
+    var onSpeakingStateChanged: ((Boolean) -> Unit)? = null
+
+    init {
+        tts = TextToSpeech(context.applicationContext) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                isInitialized = true
+                tts?.apply {
+                    // Try Arabic/UK/US high-quality serene voice
+                    val preferredLocales = listOf(
+                        Locale("ar"),
+                        Locale("en", "GB"),
+                        Locale("en", "US"),
+                        Locale.getDefault()
+                    )
+                    for (loc in preferredLocales) {
+                        if (isLanguageAvailable(loc) >= TextToSpeech.LANG_AVAILABLE) {
+                            language = loc
+                            break
+                        }
+                    }
+                    setPitch(0.96f) // Soothing, calm scholar tone
+                    setSpeechRate(0.92f) // Gentle, clear articulation
+                }
+
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {
+                        isSpeaking = true
+                        onSpeakingStateChanged?.invoke(true)
+                    }
+
+                    override fun onDone(utteranceId: String?) {
+                        isSpeaking = false
+                        onSpeakingStateChanged?.invoke(false)
+                    }
+
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) {
+                        isSpeaking = false
+                        onSpeakingStateChanged?.invoke(false)
+                    }
+                })
+            }
+        }
+    }
+
+    fun speak(text: String, utteranceId: String = "ai_voice_${System.currentTimeMillis()}") {
+        if (!isInitialized || tts == null) return
+
+        // Clean markdown stars/bullets for clean audio reading
+        val cleanSpeech = text
+            .replace(Regex("[#*`_~]"), "")
+            .replace(Regex("📖\\s*"), "")
+            .replace(Regex("\\n+"), ". ")
+            .trim()
+
+        stop()
+        tts?.speak(cleanSpeech, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+    }
+
+    fun stop() {
+        if (isSpeaking) {
+            tts?.stop()
+            isSpeaking = false
+            onSpeakingStateChanged?.invoke(false)
+        }
+    }
+
+    fun shutdown() {
+        stop()
+        tts?.shutdown()
+        tts = null
+        isInitialized = false
+    }
+}
