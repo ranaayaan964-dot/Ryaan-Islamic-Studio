@@ -216,6 +216,7 @@ object PrayerCountdownEngine {
         // Device time or simulated time
         val nowCal = Calendar.getInstance(pkZone)
         val nextSimulatedTime = simulatedTimeMillis?.plus(1000L)
+        val isSimulated = nextSimulatedTime != null
         if (nextSimulatedTime != null) {
             // In simulation mode, advance 1 second per tick
             simulatedTimeMillis = nextSimulatedTime

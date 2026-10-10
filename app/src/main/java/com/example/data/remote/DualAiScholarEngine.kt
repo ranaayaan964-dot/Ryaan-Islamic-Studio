@@ -264,8 +264,6 @@ object DualAiScholarEngine {
             val groqKey = GroqHifzClient.getResolvedGroqKey()
             if (groqKey.isBlank()) return generateOfflineScholarlyFallback(prompt)
 
-            if (groqApiKey.isBlank()) return generateOfflineScholarlyFallback(prompt)
-
             val groqReq = GroqChatRequest(
                 model = "openai/gpt-oss-120b",
                 messages = listOf(

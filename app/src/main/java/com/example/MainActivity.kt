@@ -176,6 +176,7 @@ class MainActivity : ComponentActivity() {
                         userLocation = cached.toLocationInfo()
                     }
                 }
+        }
 
         requestAppPermissions()
 
