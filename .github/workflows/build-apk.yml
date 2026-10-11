@@ -39,10 +39,7 @@ jobs:
           keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: ./gradlew assembleDebug -PGEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" -PGROQ_API_KEY="${{ secrets.GROQ_API_KEY }}" --stacktrace --no-daemon
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v7

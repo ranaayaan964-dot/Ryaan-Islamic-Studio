@@ -89,8 +89,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.database.AppDatabase
 import com.example.data.database.ChatHistoryEntity
-import com.example.data.remote.ChatMessageTurn
-import com.example.data.remote.GeminiApiClient
+import com.example.data.remote.DualAiScholarEngine
 import com.example.data.remote.GeminiChatbotRole
 import com.example.data.remote.IslamicVoiceEngine
 import com.example.ui.components.IslamicWatermarkBackground
@@ -253,48 +252,14 @@ fun AiCompanionScreen() {
 
         scope.launch {
             try {
-                // 1. Persist User Question to Room DB
-                appDb.chatDao().insertChat(
-                    ChatHistoryEntity(
-                        messageText = userPrompt,
-                        isFromUser = true,
-                        timestamp = System.currentTimeMillis()
-                    )
+                val scholarResult = DualAiScholarEngine.askScholar(
+                    context = context,
+                    userQuery = userPrompt,
+                    isFatwaRequest = activeRole == GeminiChatbotRole.COMPLEX_JURIST
                 )
-
-                // 2. Build multi-turn conversation history from Room
-                val currentHistory = withContext(Dispatchers.IO) {
-                    appDb.chatDao().getAllChatHistory()
-                }
-                val turns = currentHistory.map {
-                    ChatMessageTurn(text = it.messageText, isFromUser = it.isFromUser)
-                }
-
-                // 3. Call multi-turn Gemini Chat API with role-specific system prompt & model
-                val chatResult = GeminiApiClient.multiTurnChat(
-                    conversationHistory = turns,
-                    prompt = userPrompt,
-                    role = activeRole
-                )
-
-                val responseData = chatResult.getOrNull()
-                val answerText = responseData?.reply
-                    ?: "The AI companion could not generate a response. Please check your network connection and retry."
-                val modelTag = responseData?.modelUsed ?: activeRole.displayModel
-
-                // 4. Persist AI Response to Room DB with exact model information
-                appDb.chatDao().insertChat(
-                    ChatHistoryEntity(
-                        messageText = answerText,
-                        isFromUser = false,
-                        timestamp = System.currentTimeMillis(),
-                        scholarSource = "${activeRole.title} ($modelTag)",
-                        isFatwa = activeRole == GeminiChatbotRole.COMPLEX_JURIST
-                    )
-                )
-
-                // 5. Speak answer if TTS is active
-                voiceEngine.speak(answerText)
+                voiceEngine.speak(scholarResult.answer)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Toast.makeText(context, "Chat query error: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
