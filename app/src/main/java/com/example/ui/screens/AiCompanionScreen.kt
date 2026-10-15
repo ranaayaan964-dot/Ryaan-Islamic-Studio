@@ -67,6 +67,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -128,6 +129,14 @@ fun AiCompanionScreen() {
 
     val appDb = remember { AppDatabase.getInstance(context) }
     val chatHistory by appDb.chatDao().getAllChatHistoryFlow().collectAsStateWithLifecycle(initialValue = emptyList())
+    val messages = remember { mutableStateListOf<ChatMessage>() }
+
+    LaunchedEffect(chatHistory) {
+        if (messages.isEmpty() && chatHistory.isNotEmpty()) {
+            messages.clear()
+            messages.addAll(chatHistory.map { ChatMessage(it.messageText, it.isFromUser) })
+        }
+    }
 
     // Active Chatbot Role State
     var selectedRole by remember { mutableStateOf(GeminiChatbotRole.GENERAL_COMPANION) }
@@ -246,6 +255,7 @@ fun AiCompanionScreen() {
             selectedRole
         }
 
+        messages.add(ChatMessage(userPrompt, true))
         thinkingModelName = activeRole.displayModel
         isThinking = true
         voiceEngine.stop()
@@ -257,6 +267,7 @@ fun AiCompanionScreen() {
                     userQuery = userPrompt,
                     isFatwaRequest = activeRole == GeminiChatbotRole.COMPLEX_JURIST
                 )
+                messages.add(ChatMessage(scholarResult.answer, false))
                 voiceEngine.speak(scholarResult.answer)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -454,21 +465,21 @@ fun AiCompanionScreen() {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                items(chatHistory, key = { it.id }) { chat ->
+                items(messages.size) { index ->
+                    val chat = messages[index]
                     ChatBubbleItem(
                         chat = chat,
-                        isSpeaking = activeSpeakingMessageId == chat.id && isVoiceSpeaking,
+                        isSpeaking = false,
                         onSpeakToggle = {
-                            if (activeSpeakingMessageId == chat.id && isVoiceSpeaking) {
+                            if (chat.isUser) return@ChatBubbleItem
+                            if (isVoiceSpeaking) {
                                 voiceEngine.stop()
-                                activeSpeakingMessageId = null
                             } else {
-                                activeSpeakingMessageId = chat.id
-                                voiceEngine.speak(chat.messageText)
+                                voiceEngine.speak(chat.text)
                             }
                         },
                         onCopyText = {
-                            clipboardManager.setText(AnnotatedString(chat.messageText))
+                            clipboardManager.setText(AnnotatedString(chat.text))
                             Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                         }
                     )
@@ -748,13 +759,13 @@ fun RoleSelectorPill(
 
 @Composable
 fun ChatBubbleItem(
-    chat: ChatHistoryEntity,
+    chat: ChatMessage,
     isSpeaking: Boolean,
     onSpeakToggle: () -> Unit,
     onCopyText: () -> Unit
 ) {
-    val isUser = chat.isFromUser
-    val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(chat.timestamp))
+    val isUser = chat.isUser
+    val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -820,7 +831,7 @@ fun ChatBubbleItem(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = chat.scholarSource,
+                                text = "Noor AI",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = PlatinumGold
@@ -848,7 +859,7 @@ fun ChatBubbleItem(
                     }
 
                     Text(
-                        text = chat.messageText,
+                        text = chat.text,
                         fontSize = 13.5.sp,
                         lineHeight = 20.sp,
                         color = if (isUser) PureWhite else CharcoalPrimary

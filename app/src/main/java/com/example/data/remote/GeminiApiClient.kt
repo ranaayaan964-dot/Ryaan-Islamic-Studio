@@ -7,16 +7,9 @@ import android.util.Log
 import com.example.BuildConfig
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 // --- Gemini Request / Response DTOs using Moshi ---
 
@@ -174,7 +167,6 @@ enum class GeminiChatbotRole(
  */
 object GeminiApiClient {
     private const val TAG = "GeminiApiClient"
-    private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
     fun getResolvedGeminiKey(): String {
         val buildKey = try {
@@ -185,19 +177,6 @@ object GeminiApiClient {
         return buildKey.takeIf { it.isNotBlank() && it != "MY_GEMINI_API_KEY" && !it.contains("YOUR_") }.orEmpty()
     }
 
-    private val moshi = Moshi.Builder()
-        .add(KotlinJsonAdapterFactory())
-        .build()
-
-    private val requestAdapter = moshi.adapter(GeminiRequest::class.java)
-    private val responseAdapter = moshi.adapter(GeminiResponse::class.java)
-
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .build()
-
     /**
      * Executes a true multi-turn chat with conversation history and role-specific system instructions.
      */
@@ -206,129 +185,33 @@ object GeminiApiClient {
         prompt: String,
         role: GeminiChatbotRole
     ): Result<GeminiChatResult> = withContext(Dispatchers.IO) {
-        val apiKey = getResolvedGeminiKey()
-
-        // Build sequential multi-turn contents
-        val contents = mutableListOf<GeminiContent>()
-
-        // Take up to the last 12 turns for context budget
-        val recentHistory = conversationHistory.takeLast(12)
-        for (turn in recentHistory) {
-            val roleName = if (turn.isFromUser) "user" else "model"
-            contents.add(
-                GeminiContent(
-                    role = roleName,
-                    parts = listOf(GeminiPart(text = turn.text))
-                )
-            )
-        }
-
-        // Append the new user prompt
-        contents.add(
-            GeminiContent(
-                role = "user",
-                parts = listOf(GeminiPart(text = prompt))
-            )
-        )
-
-        val systemInstruction = GeminiContent(
-            parts = listOf(GeminiPart(text = role.systemPrompt))
-        )
-
-        val generationConfig = GeminiGenerationConfig(
-            temperature = if (role == GeminiChatbotRole.COMPLEX_JURIST) 0.4f else 0.7f,
-            topP = 0.95f,
-            topK = 40,
-            maxOutputTokens = if (role == GeminiChatbotRole.FAST_FINDER) 800 else 1800
-        )
-
-        val geminiRequest = GeminiRequest(
-            contents = contents,
-            systemInstruction = systemInstruction,
-            generationConfig = generationConfig
-        )
-
-        val jsonBody = try {
-            requestAdapter.toJson(geminiRequest)
-        } catch (jsonEx: Exception) {
-            Log.w(TAG, "JSON serialization error: ${jsonEx.message}")
-            return@withContext Result.failure(Exception("Unable to encode chat request: ${jsonEx.message}"))
-        }
-
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            // High-fidelity fallback when API key is missing
-            val fallbackResponse = generateScholarlySimulation(prompt, role)
-            return@withContext Result.success(
-                GeminiChatResult(
-                    reply = fallbackResponse,
-                    modelUsed = role.displayModel,
-                    roleTitle = role.title,
-                    taskComplexity = role.taskComplexity
-                )
-            )
-        }
-
-        val requestBody = jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType())
-        val url = "$BASE_URL/${role.modelName}:generateContent?key=$apiKey"
-
-        val request = Request.Builder()
-            .url(url)
-            .post(requestBody)
-            .build()
-
         try {
-            httpClient.newCall(request).execute().use { response ->
-                val responseString = try { response.body?.string() } catch (_: Exception) { null }
-
-                if (!response.isSuccessful || responseString.isNullOrBlank()) {
-                    val code = response.code
-                    Log.e(TAG, "Gemini API failed code=$code: $responseString")
-
-                    // Fallback to simulation if rate limited or service error
-                    val fallback = generateScholarlySimulation(prompt, role)
-                    return@withContext Result.success(
-                        GeminiChatResult(
-                            reply = "$fallback\n\n*(Note: Generated via Islamic Knowledge Base while Gemini endpoint returned HTTP $code)*",
-                            modelUsed = role.displayModel,
-                            roleTitle = role.title,
-                            taskComplexity = role.taskComplexity
-                        )
-                    )
+            val recentHistory = conversationHistory.takeLast(12)
+            val fullPrompt = buildString {
+                if (recentHistory.isNotEmpty()) {
+                    appendLine("Conversation context:")
+                    recentHistory.forEach { turn ->
+                        appendLine("${if (turn.isFromUser) "User" else "Assistant"}: ${turn.text}")
+                    }
+                    appendLine()
                 }
-
-                val parsed = try {
-                    responseAdapter.fromJson(responseString)
-                } catch (jsonEx: Exception) {
-                    Log.w(TAG, "Gemini JSON parsing error: ${jsonEx.message}")
-                    null
-                }
-
-                val text = parsed?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                if (!text.isNullOrBlank()) {
-                    Result.success(
-                        GeminiChatResult(
-                            reply = text.trim(),
-                            modelUsed = role.displayModel,
-                            roleTitle = role.title,
-                            taskComplexity = role.taskComplexity
-                        )
-                    )
-                } else {
-                    val errorMsg = parsed?.error?.message ?: "No response from Gemini. Please rephrase."
-                    Result.failure(Exception(errorMsg))
-                }
+                append("Current user message: ")
+                append(prompt)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Network exception querying Gemini API: ${e.message}")
-            val fallback = generateScholarlySimulation(prompt, role)
+            val routed = DualAiScholarEngine.askScholarWithSource(fullPrompt, role.systemPrompt)
             Result.success(
                 GeminiChatResult(
-                    reply = fallback,
-                    modelUsed = role.displayModel,
+                    reply = routed.answer,
+                    modelUsed = routed.source,
                     roleTitle = role.title,
                     taskComplexity = role.taskComplexity
                 )
             )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "AI provider router failed for Gemini chat: ${e.message}", e)
+            Result.failure(e)
         }
     }
 

@@ -11,19 +11,17 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.suspendCancellableCoroutine
-import okhttp3.Call
-import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
+import org.json.JSONArray
+import org.json.JSONObject
+import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 // --- Groq OpenAI-Compatible DTOs ---
 
@@ -77,8 +75,22 @@ object DualAiScholarEngine {
     private const val TAG = "DualAiScholarEngine"
 
     private const val GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-    private const val GEMINI_MODEL = "gemini-3.5-flash"
     private const val GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
+    private const val KEYLESS_ENDPOINT = "https://text.pollinations.ai/openai"
+    private const val COOLDOWN_DURATION_MS = 60_000L
+    private const val INVALID_KEY_COOLDOWN_MS = 10 * 60_000L
+    private const val TRANSIENT_COOLDOWN_MS = 15_000L
+
+    private val cooldownMap = ConcurrentHashMap<String, Long>()
+    private val geminiKeyCursor = AtomicInteger()
+    private val groqKeyCursor = AtomicInteger()
+    private val geminiModelCursor = AtomicInteger()
+    private val groqModelCursor = AtomicInteger()
+    private val keylessModelCursor = AtomicInteger()
+
+    private val geminiModels = listOf("gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b")
+    private val groqModels = listOf("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it")
+    private val keylessModels = listOf("openai", "mistral", "llama")
 
     private val moshi by lazy {
         Moshi.Builder()
@@ -91,20 +103,12 @@ object DualAiScholarEngine {
     private val groqReqAdapter by lazy { moshi.adapter(GroqChatRequest::class.java) }
     private val groqResAdapter by lazy { moshi.adapter(GroqChatResponse::class.java) }
 
-    // Dedicated fast client with 6s timeout for Gemini failover detection
-    private val fastHttpClient by lazy {
+    private val routerHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(6, TimeUnit.SECONDS)
-            .readTimeout(6, TimeUnit.SECONDS)
-            .writeTimeout(6, TimeUnit.SECONDS)
-            .build()
-    }
-
-    private val reliableGroqClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .writeTimeout(8, TimeUnit.SECONDS)
+            .callTimeout(18, TimeUnit.SECONDS)
             .build()
     }
 
@@ -138,23 +142,8 @@ object DualAiScholarEngine {
                 Log.w(TAG, "Could not persist user chat message: ${dbEx.message}")
             }
 
-            // 2. Attempt Primary: Gemini API with strict 6s timeout
-            var result: AiScholarResult? = null
-            try {
-                result = withTimeoutOrNull(6000L) {
-                    attemptGeminiApi(userQuery)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "Gemini primary encountered network/timeout error: ${e.message}, triggering instant Groq failover.")
-            }
-
-            // 3. Instant Groq Fallback if Gemini timed out or failed
-            if (result == null || result.answer.isBlank()) {
-                Log.i(TAG, "Rerouting request to Groq API (openai/gpt-oss-120b)...")
-                result = attemptGroqApi(userQuery)
-            }
+            val result = routeText(userQuery, SYSTEM_PROMPT)
+                ?: generateOfflineScholarlyFallback(userQuery)
 
             // 4. Persist AI Scholar Answer to Room DB safely
             val extractedRefs = try {
@@ -189,152 +178,247 @@ object DualAiScholarEngine {
         }
     }
 
-    private suspend fun attemptGeminiApi(prompt: String): AiScholarResult? {
-        return try {
-            val apiKey = GeminiApiClient.getResolvedGeminiKey()
-            if (apiKey.isBlank()) return null
+    suspend fun askScholar(userQuery: String, customSystemPrompt: String? = null): String =
+        withContext(Dispatchers.IO) {
+            routeText(userQuery, customSystemPrompt ?: SYSTEM_PROMPT)?.answer
+                ?: "Assalamu Alaikum. AI providers are unavailable right now. Please try again shortly."
+        }
 
-            val geminiReq = GeminiRequest(
-                contents = listOf(
-                    GeminiContent(
-                        role = "user",
-                        parts = listOf(GeminiPart(text = prompt))
-                    )
-                ),
-                systemInstruction = GeminiContent(
-                    parts = listOf(GeminiPart(text = SYSTEM_PROMPT))
-                ),
-                generationConfig = GeminiGenerationConfig(
-                    temperature = 0.5f,
-                    maxOutputTokens = 1500
+    suspend fun askScholarWithSource(userQuery: String, customSystemPrompt: String): AiScholarResult =
+        withContext(Dispatchers.IO) {
+            routeText(userQuery, customSystemPrompt)
+                ?: AiScholarResult(
+                    answer = "Assalamu Alaikum. AI providers are unavailable right now. Please try again shortly.",
+                    source = "Provider failover unavailable"
                 )
-            )
+        }
 
-            val jsonBody = try {
-                geminiReqAdapter.toJson(geminiReq)
-            } catch (jsonEx: Exception) {
-                Log.w(TAG, "Gemini JSON serialization error: ${jsonEx.message}")
-                return null
-            }
+    private data class ProviderResponse(val code: Int?, val body: String?)
 
-            val request = Request.Builder()
-                .url("$GEMINI_ENDPOINT/$GEMINI_MODEL:generateContent?key=$apiKey")
-                .post(jsonBody.toRequestBody("application/json".toMediaType()))
-                .build()
-
-            fastHttpClient.newCall(request).awaitResponse().use { response ->
-                if (!response.isSuccessful) {
-                    val code = response.code
-                    if (code == 429) {
-                        Log.w(TAG, "Gemini 429 (Quota Exceeded). Instantly falling over to Groq.")
-                    } else if (code == 503) {
-                        Log.w(TAG, "Gemini 503 (Service Unavailable). Instantly falling over to Groq.")
-                    } else {
-                        Log.w(TAG, "Gemini API HTTP $code. Failing over to Groq.")
-                    }
-                    return null
-                }
-                val respBody = response.body?.string() ?: return null
-                val geminiResponse = try {
-                    geminiResAdapter.fromJson(respBody)
-                } catch (jsonEx: Exception) {
-                    Log.w(TAG, "Gemini JSON deserialization error: ${jsonEx.message}")
-                    null
-                }
-                val answer = geminiResponse?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+    private fun routeText(userQuery: String, systemPrompt: String): AiScholarResult? {
+        val geminiKeys = rotate(geminiApiKeyPool(), geminiKeyCursor)
+        val orderedGeminiModels = rotate(geminiModels, geminiModelCursor)
+        for (apiKey in geminiKeys) {
+            for (model in orderedGeminiModels) {
+                val routeId = routeId("gemini", model, apiKey)
+                if (isOnCooldown(routeId)) continue
+                val answer = tryGeminiModel(apiKey, model, systemPrompt, userQuery, routeId)
                 if (!answer.isNullOrBlank()) {
-                    AiScholarResult(
-                        answer = answer.trim(),
-                        source = "Gemini Ultra-Scholar (Google AI)"
-                    )
-                } else {
-                    null
+                    return AiScholarResult(answer.trim(), "Gemini $model")
                 }
+            }
+        }
+
+        val groqKeys = rotate(groqApiKeyPool(), groqKeyCursor)
+        val orderedGroqModels = rotate(groqModels, groqModelCursor)
+        for (apiKey in groqKeys) {
+            for (model in orderedGroqModels) {
+                val routeId = routeId("groq", model, apiKey)
+                if (isOnCooldown(routeId)) continue
+                val answer = tryGroqModel(apiKey, model, systemPrompt, userQuery, routeId)
+                if (!answer.isNullOrBlank()) {
+                    return AiScholarResult(answer.trim(), "Groq $model")
+                }
+            }
+        }
+
+        for (model in rotate(keylessModels, keylessModelCursor)) {
+            val routeId = "keyless:$model"
+            if (isOnCooldown(routeId)) continue
+            val answer = tryKeylessModel(model, systemPrompt, userQuery, routeId)
+            if (!answer.isNullOrBlank()) {
+                return AiScholarResult(answer.trim(), "Pollinations $model")
+            }
+        }
+        return null
+    }
+
+    private fun tryGeminiModel(
+        apiKey: String,
+        model: String,
+        systemPrompt: String,
+        userQuery: String,
+        routeId: String
+    ): String? {
+        val requestDto = GeminiRequest(
+            contents = listOf(GeminiContent(role = "user", parts = listOf(GeminiPart(text = userQuery)))),
+            systemInstruction = GeminiContent(parts = listOf(GeminiPart(text = systemPrompt))),
+            generationConfig = GeminiGenerationConfig(temperature = 0.3f, maxOutputTokens = 1024)
+        )
+        val body = try {
+            geminiReqAdapter.toJson(requestDto)
+        } catch (e: Exception) {
+            Log.w(TAG, "Gemini request serialization failed for $model", e)
+            markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
+            return null
+        }
+        val url = "$GEMINI_ENDPOINT/$model:generateContent".toHttpUrl()
+            .newBuilder()
+            .addQueryParameter("key", apiKey)
+            .build()
+        val request = Request.Builder()
+            .url(url)
+            .header("Content-Type", "application/json")
+            .post(body.toRequestBody("application/json".toMediaType()))
+            .build()
+        val response = executeProviderRequest(request, routeId) ?: return null
+        if (response.code !in 200..299) return null
+        val result = try {
+            geminiResAdapter.fromJson(response.body.orEmpty())
+                ?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
+        } catch (e: Exception) {
+            Log.w(TAG, "Gemini response parsing failed for $model", e)
+            null
+        }
+        return acceptAnswer(routeId, result)
+    }
+
+    private fun tryGroqModel(
+        apiKey: String,
+        model: String,
+        systemPrompt: String,
+        userQuery: String,
+        routeId: String
+    ): String? {
+        val requestDto = GroqChatRequest(
+            model = model,
+            messages = listOf(
+                GroqMessage(role = "system", content = systemPrompt),
+                GroqMessage(role = "user", content = userQuery)
+            ),
+            temperature = 0.3f,
+            maxTokens = 1024
+        )
+        val body = try {
+            groqReqAdapter.toJson(requestDto)
+        } catch (e: Exception) {
+            Log.w(TAG, "Groq request serialization failed for $model", e)
+            markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
+            return null
+        }
+        val request = Request.Builder()
+            .url(GROQ_ENDPOINT)
+            .header("Authorization", "Bearer $apiKey")
+            .header("Content-Type", "application/json")
+            .post(body.toRequestBody("application/json".toMediaType()))
+            .build()
+        val response = executeProviderRequest(request, routeId) ?: return null
+        if (response.code !in 200..299) return null
+        val result = try {
+            groqResAdapter.fromJson(response.body.orEmpty())
+                ?.choices?.firstOrNull()?.message?.content?.trim()
+        } catch (e: Exception) {
+            Log.w(TAG, "Groq response parsing failed for $model", e)
+            null
+        }
+        return acceptAnswer(routeId, result)
+    }
+
+    private fun tryKeylessModel(
+        model: String,
+        systemPrompt: String,
+        userQuery: String,
+        routeId: String
+    ): String? {
+        val payload = JSONObject().apply {
+            put("model", model)
+            put("messages", JSONArray().apply {
+                put(JSONObject().put("role", "system").put("content", systemPrompt))
+                put(JSONObject().put("role", "user").put("content", userQuery))
+            })
+            put("temperature", 0.3)
+        }
+        val request = Request.Builder()
+            .url(KEYLESS_ENDPOINT)
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        val response = executeProviderRequest(request, routeId) ?: return null
+        if (response.code !in 200..299) return null
+        val responseBody = response.body.orEmpty().trim()
+        val answer = try {
+            if (responseBody.startsWith("{")) {
+                val choices = JSONObject(responseBody).optJSONArray("choices")
+                choices?.optJSONObject(0)?.optJSONObject("message")?.optString("content")?.trim()
+            } else {
+                responseBody
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Pollinations response parsing failed for $model", e)
+            null
+        }
+        return acceptAnswer(routeId, answer)
+    }
+
+    private fun executeProviderRequest(request: Request, routeId: String): ProviderResponse? {
+        return try {
+            routerHttpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string()
+                when {
+                    response.code == 429 || response.code in 500..599 ->
+                        markCooldown(routeId)
+                    response.code == 401 || response.code == 403 ->
+                        markCooldown(routeId, INVALID_KEY_COOLDOWN_MS)
+                    !response.isSuccessful -> markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
+                }
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Provider request failed: route=$routeId status=${response.code}")
+                }
+                ProviderResponse(response.code, body)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Gemini request encountered exception (${e::class.java.simpleName}): ${e.message}. Silently falling over to Groq.")
+            Log.w(TAG, "Provider request failed: route=$routeId error=${e::class.java.simpleName}")
+            markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
             null
         }
     }
 
-    private suspend fun attemptGroqApi(prompt: String): AiScholarResult {
-        return try {
-            val groqKey = GroqHifzClient.getResolvedGroqKey()
-            if (groqKey.isBlank()) return generateOfflineScholarlyFallback(prompt)
-
-            val groqReq = GroqChatRequest(
-                model = "openai/gpt-oss-120b",
-                messages = listOf(
-                    GroqMessage(role = "system", content = SYSTEM_PROMPT.trimIndent()),
-                    GroqMessage(role = "user", content = prompt)
-                ),
-                temperature = 0.6f,
-                maxTokens = 2048
-            )
-
-            val jsonBody = try {
-                groqReqAdapter.toJson(groqReq)
-            } catch (jsonEx: Exception) {
-                Log.w(TAG, "Groq JSON serialization failed: ${jsonEx.message}")
-                return generateOfflineScholarlyFallback(prompt)
-            }
-
-            val request = Request.Builder()
-                .url(GROQ_ENDPOINT)
-                .addHeader("Authorization", "Bearer $groqKey")
-                .addHeader("Content-Type", "application/json")
-                .post(jsonBody.toRequestBody("application/json".toMediaType()))
-                .build()
-
-            reliableGroqClient.newCall(request).awaitResponse().use { response ->
-                if (!response.isSuccessful) {
-                    val err = try { response.body?.string() } catch (_: Exception) { null }
-                    Log.e(TAG, "Groq error: $err")
-                    return generateOfflineScholarlyFallback(prompt)
-                }
-                val respBody = try { response.body?.string() } catch (_: Exception) { null }
-                    ?: return generateOfflineScholarlyFallback(prompt)
-                val parsed = try {
-                    groqResAdapter.fromJson(respBody)
-                } catch (jsonEx: Exception) {
-                    Log.w(TAG, "Groq JSON deserialization error: ${jsonEx.message}")
-                    null
-                }
-                val answer = parsed?.choices?.firstOrNull()?.message?.content
-                if (!answer.isNullOrBlank()) {
-                    AiScholarResult(
-                        answer = answer.trim(),
-                        source = "Groq Llama-3-70B Failover Engine"
-                    )
-                } else {
-                    generateOfflineScholarlyFallback(prompt)
-                }
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Groq execution caught ${e::class.java.simpleName}: ${e.message}")
-            generateOfflineScholarlyFallback(prompt)
+    private fun acceptAnswer(routeId: String, answer: String?): String? {
+        if (answer.isNullOrBlank()) {
+            markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
+            return null
         }
+        cooldownMap.remove(routeId)
+        return answer
     }
 
-    private suspend fun Call.awaitResponse(): Response = suspendCancellableCoroutine { continuation ->
-        continuation.invokeOnCancellation { cancel() }
-        enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                if (continuation.isActive) {
-                    continuation.resumeWithException(e)
-                }
-            }
+    internal fun parseConfiguredKeyPool(raw: String): List<String> = raw
+        .split(',', ';', '\n')
+        .map(String::trim)
+        .filter { it.isNotBlank() && !it.startsWith("YOUR_") && !it.startsWith("MY_") }
+        .distinct()
 
-            override fun onResponse(call: Call, response: Response) {
-                continuation.resume(response) { _, cancelledResponse, _ ->
-                    cancelledResponse.close()
-                }
-            }
-        })
+    internal fun geminiApiKeyPool(): List<String> =
+        parseConfiguredKeyPool(GeminiApiClient.getResolvedGeminiKey())
+
+    internal fun groqApiKeyPool(): List<String> =
+        parseConfiguredKeyPool(GroqHifzClient.getResolvedGroqKey())
+
+    private fun <T> rotate(values: List<T>, cursor: AtomicInteger): List<T> {
+        if (values.size < 2) return values
+        val offset = Math.floorMod(cursor.getAndIncrement(), values.size)
+        return values.drop(offset) + values.take(offset)
+    }
+
+    private fun routeId(provider: String, model: String, apiKey: String): String {
+        val keyFingerprint = MessageDigest.getInstance("SHA-256")
+            .digest(apiKey.toByteArray())
+            .take(6)
+            .joinToString("") { "%02x".format(it) }
+        return "$provider:$model:$keyFingerprint"
+    }
+
+    private fun isOnCooldown(routeId: String): Boolean {
+        val expiry = cooldownMap[routeId] ?: return false
+        if (System.currentTimeMillis() < expiry) return true
+        cooldownMap.remove(routeId, expiry)
+        return false
+    }
+
+    private fun markCooldown(routeId: String, durationMs: Long = COOLDOWN_DURATION_MS) {
+        cooldownMap[routeId] = System.currentTimeMillis() + durationMs
     }
 
     private fun generateOfflineScholarlyFallback(prompt: String): AiScholarResult {

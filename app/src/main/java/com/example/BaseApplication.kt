@@ -20,8 +20,9 @@ class BaseApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // Register Global Crash Handler to intercept any unhandled exceptions
-        Thread.setDefaultUncaughtExceptionHandler(GlobalCrashHandler(this))
-        Log.i(TAG, "GlobalCrashHandler registered successfully. Zero-Crash policy active.")
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        val crashHandler = GlobalCrashHandler(this, previousHandler)
+        Thread.setDefaultUncaughtExceptionHandler(crashHandler)
+        Log.i(TAG, "GlobalCrashHandler registered successfully. Zero-Crash policy active. Previous handler: ${previousHandler?.javaClass?.name ?: "none"}")
     }
 }

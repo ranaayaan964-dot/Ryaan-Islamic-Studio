@@ -7,6 +7,7 @@ import com.example.data.model.AladhanApiResponse
 import com.example.data.model.PrayerTimeItem
 import com.example.data.model.PrayerType
 import com.example.data.model.SahiwalPrayerSchedule
+import com.example.util.PrayerCalculator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -456,22 +457,36 @@ object AladhanRepository {
     }
 
     fun getSahiwalFallbackSchedule(provider: PrayerApiProvider = PrayerApiProvider.ALADHAN_EXACT_COORDINATES): Pair<SahiwalPrayerSchedule, List<PrayerTimeItem>> {
-        val fajr = "04:24"
-        val sunrise = "05:47"
-        val dhuhr = "12:06"
-        val asr = "16:38"
-        val maghrib = "18:25"
-        val isha = "19:47"
-        val imsak = "04:14"
-        val midnight = "00:06"
-        val tahajjud = "03:54"
+        val localCalendar = Calendar.getInstance(pkZone)
+        val items = PrayerCalculator.calculatePrayerTimes(
+            latitude = SAHIWAL_LATITUDE,
+            longitude = SAHIWAL_LONGITUDE,
+            calendar = localCalendar,
+            asrShadowFactor = 2.0
+        )
+        val timeFor: (PrayerType) -> String = { type ->
+            items.first { it.type == type }.timeFormatted
+        }
+        val fajr = timeFor(PrayerType.FAJR)
+        val sunrise = timeFor(PrayerType.SUNRISE)
+        val dhuhr = timeFor(PrayerType.DHUHR)
+        val asr = timeFor(PrayerType.ASR)
+        val maghrib = timeFor(PrayerType.MAGHRIB)
+        val isha = timeFor(PrayerType.ISHA)
+        val fajrMillis = items.first { it.type == PrayerType.FAJR }.timeMillis
+        val maghribMillis = items.first { it.type == PrayerType.MAGHRIB }.timeMillis
+        val nextFajrMillis = fajrMillis + 24 * 60 * 60 * 1000L
+        val midnight = SimpleDateFormat("hh:mm a", Locale.ENGLISH).apply { timeZone = pkZone }
+            .format(Date(maghribMillis + (nextFajrMillis - maghribMillis) / 2L))
+        val imsak = formatTo12Hour(calculateTimeOffset(normalizeTo24Hour(fajr), -10))
+        val tahajjud = formatTo12Hour(calculateTimeOffset(normalizeTo24Hour(fajr), -30))
 
         val schedule = SahiwalPrayerSchedule(
             city = "Sahiwal",
             country = "Pakistan",
-            method = "University of Islamic Sciences, Karachi (Hanafi, Method 1)",
-            apiSource = provider.displayName,
-            hijriDate = "24 Safar 1448 AH",
+            method = "Local solar calculation (Fajr 18°, Isha 17.5°, Hanafi Asr)",
+            apiSource = "Local PrayerCalculator (offline; ${provider.shortName} unavailable)",
+            hijriDate = "Unavailable offline",
             gregorianDate = SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).apply { timeZone = pkZone }.format(Date()),
             fajr = formatTo12Hour(fajr),
             sunrise = formatTo12Hour(sunrise),
@@ -482,10 +497,9 @@ object AladhanRepository {
             imsak = formatTo12Hour(imsak),
             midnight = formatTo12Hour(midnight),
             tahajjudWindow = formatTo12Hour(tahajjud),
-            isLiveFromApi = true
+            isLiveFromApi = false
         )
 
-        val items = buildPrayerItems(fajr, sunrise, dhuhr, asr, maghrib, isha)
         return Pair(schedule, items)
     }
 }

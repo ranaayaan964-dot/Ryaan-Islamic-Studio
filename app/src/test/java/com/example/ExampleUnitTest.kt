@@ -7,26 +7,62 @@ import org.junit.Test
 
 class ExampleUnitTest {
   @Test
+  fun `AI provider key pool parses separators removes placeholders and deduplicates`() {
+    val keys = com.example.data.remote.DualAiScholarEngine.parseConfiguredKeyPool(
+      " gemini-key-one,gemini-key-two;YOUR_GEMINI_KEY\nMY_GROQ_API_KEY,gemini-key-one "
+    )
+
+    assertEquals(listOf("gemini-key-one", "gemini-key-two"), keys)
+  }
+
+  @Test
   fun addition_isCorrect() {
     assertEquals(4, 2 + 2)
   }
 
   @Test
-  fun `verify Sahiwal schedule returns correct prayer times with Islamic Finder source`() {
+  fun `verify offline Sahiwal schedule calculates all prayer times locally`() {
     val (schedule, items) = AladhanRepository.getSahiwalFallbackSchedule(PrayerApiProvider.ISLAMIC_FINDER)
     assertEquals("Sahiwal", schedule.city)
     assertEquals("Pakistan", schedule.country)
-    assertEquals("Islamic Finder API", schedule.apiSource)
-    assertTrue(items.isNotEmpty())
+    assertTrue(schedule.apiSource.contains("Local PrayerCalculator"))
+    assertFalse(schedule.isLiveFromApi)
     assertEquals(6, items.size)
+    assertEquals(
+      setOf(
+        com.example.data.model.PrayerType.FAJR,
+        com.example.data.model.PrayerType.SUNRISE,
+        com.example.data.model.PrayerType.DHUHR,
+        com.example.data.model.PrayerType.ASR,
+        com.example.data.model.PrayerType.MAGHRIB,
+        com.example.data.model.PrayerType.ISHA
+      ),
+      items.map { it.type }.toSet()
+    )
+    assertTrue(items.all { it.timeMillis > 0L && it.timeFormatted.isNotBlank() })
   }
 
   @Test
-  fun `verify MuslimSalat provider schedule`() {
+  fun `verify offline Hanafi schedule calculates Asr later than Shafi schedule`() {
     val (schedule, items) = AladhanRepository.getSahiwalFallbackSchedule(PrayerApiProvider.MUSLIM_SALAT)
     assertEquals("Sahiwal", schedule.city)
-    assertEquals("MuslimSalat API", schedule.apiSource)
+    assertTrue(schedule.apiSource.contains("Local PrayerCalculator"))
+    assertFalse(schedule.isLiveFromApi)
     assertEquals(6, items.size)
+
+    val calendar = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Karachi"))
+    val shafiAsr = com.example.util.PrayerCalculator.calculatePrayerTimes(
+      AladhanRepository.SAHIWAL_LATITUDE,
+      AladhanRepository.SAHIWAL_LONGITUDE,
+      calendar,
+      asrShadowFactor = 1.0
+    ).first { it.type == com.example.data.model.PrayerType.ASR }
+    val hanafiAsr = items.first { it.type == com.example.data.model.PrayerType.ASR }
+    val dhuhr = items.first { it.type == com.example.data.model.PrayerType.DHUHR }
+    val maghrib = items.first { it.type == com.example.data.model.PrayerType.MAGHRIB }
+    assertTrue("Hanafi Asr must follow Dhuhr", hanafiAsr.timeMillis > dhuhr.timeMillis)
+    assertTrue("Hanafi Asr must precede Maghrib", hanafiAsr.timeMillis < maghrib.timeMillis)
+    assertTrue("Hanafi Asr should occur after Shafi Asr", hanafiAsr.timeMillis > shafiAsr.timeMillis)
   }
 
   @Test
@@ -60,7 +96,7 @@ class ExampleUnitTest {
     assertEquals("Fajr", state.targetPrayerName)
     // Verify requirement 2: isTomorrow must be true (Fajr + 1 Day)
     assertTrue(state.isTomorrow)
-    // Verify requirement 3: Countdown must be strictly positive (approx 4 hours 27 min until ~04:24 AM)
+    // Verify requirement 3: Countdown must be strictly positive and remain within the next day.
     assertTrue("Remaining millis must be positive but was ${state.remainingMillis}", state.remainingMillis > 0)
     assertTrue("Hours must be around 4 or 5", state.hours in 4..5)
     assertTrue("Formatted time must not start with negative", !state.formattedTime.startsWith("-"))

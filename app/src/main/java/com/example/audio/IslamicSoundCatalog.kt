@@ -413,8 +413,10 @@ object IslamicSoundCatalog {
         )
     )
 
-    fun getSoundById(id: String): IslamicSoundItem {
-        return allSounds.find { it.id == id } ?: allSounds.first()
+    fun getSoundById(id: String, fallbackSoundId: String = SoundEvent.REGULAR.defaultSoundId): IslamicSoundItem {
+        return allSounds.find { it.id == id }
+            ?: allSounds.find { it.id == fallbackSoundId }
+            ?: allSounds.first { it.id == SoundEvent.REGULAR.defaultSoundId }
     }
 
     fun getSoundsByCategory(category: SoundCategory): List<IslamicSoundItem> {

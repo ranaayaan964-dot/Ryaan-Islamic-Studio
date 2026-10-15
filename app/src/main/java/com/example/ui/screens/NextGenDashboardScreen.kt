@@ -169,6 +169,7 @@ fun NextGenDashboardScreen(
     var showQazaModal by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showPrayerTools by remember { mutableStateOf(false) }
 
     val settingsRepo = remember { SettingsRepository.getInstance(context) }
     val currentAppTheme by settingsRepo.appThemeFlow.collectAsStateWithLifecycle(initialValue = ThemeType.PEARL_WHITE)
@@ -521,15 +522,51 @@ fun NextGenDashboardScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // API Source Switcher Chips
-                    Text(
-                        text = "SELECT PRAYER API SOURCE:",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF94A3B8),
-                        letterSpacing = 0.8.sp
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(glassColors.chipBackground)
+                            .border(1.dp, glassColors.chipBorder, RoundedCornerShape(12.dp))
+                            .clickable { showPrayerTools = !showPrayerTools }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = glassColors.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Prayer & test tools",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = glassColors.textPrimary
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = if (showPrayerTools) "Hide" else "Show",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = glassColors.primary
+                        )
+                    }
+
+                    AnimatedVisibility(visible = showPrayerTools) {
+                        Column {
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // API Source Switcher Chips
+                            Text(
+                                text = "PRAYER TIME SOURCE",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF94A3B8),
+                                letterSpacing = 0.8.sp
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
 
                     Row(
                         modifier = Modifier
@@ -719,6 +756,8 @@ fun NextGenDashboardScreen(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
+                    }
+                        }
                     }
                 }
             }

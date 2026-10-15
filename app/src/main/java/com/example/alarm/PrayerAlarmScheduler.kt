@@ -152,7 +152,13 @@ object PrayerAlarmScheduler {
             exactIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        scheduleExactOrAllowWhileIdle(alarmManager, triggerTime, exactPendingIntent)
+        scheduleAlarmClock(alarmManager, context, triggerTime, baseRequestCode, exactPendingIntent)
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putLong("time_${prayer.type.name}", triggerTime)
+            .putString("fmt_${prayer.type.name}", prayer.timeFormatted)
+            .putBoolean("enabled_${prayer.type.name}", true)
+            .apply()
         Log.d(TAG, "Scheduled EXACT alarm for ${prayer.type.displayName} at $triggerTime (rc=$baseRequestCode)")
 
         // 2. 15-MINUTE PRE-REMINDER (High-Priority Notification + Gentle Chime)
@@ -255,6 +261,44 @@ object PrayerAlarmScheduler {
         }
     }
 
+    @SuppressLint("ScheduleExactAlarm")
+    private fun scheduleAlarmClock(
+        alarmManager: AlarmManager,
+        context: Context,
+        triggerTime: Long,
+        requestCode: Int,
+        alarmOperation: PendingIntent
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            scheduleExactOrAllowWhileIdle(alarmManager, triggerTime, alarmOperation)
+            return
+        }
+
+        val showIntent = Intent(context, com.example.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("opened_from_alarm", true)
+        }
+        val showOperation = PendingIntent.getActivity(
+            context,
+            3000 + requestCode,
+            showIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        try {
+            alarmManager.setAlarmClock(
+                AlarmManager.AlarmClockInfo(triggerTime, showOperation),
+                alarmOperation
+            )
+        } catch (securityException: SecurityException) {
+            Log.w(TAG, "setAlarmClock permission unavailable; falling back to idle-aware exact scheduling", securityException)
+            scheduleExactOrAllowWhileIdle(alarmManager, triggerTime, alarmOperation)
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not register AlarmClockInfo; falling back to idle-aware scheduling", e)
+            scheduleExactOrAllowWhileIdle(alarmManager, triggerTime, alarmOperation)
+        }
+    }
+
     fun cancelPrayerAlarm(context: Context, prayer: PrayerTimeItem) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
@@ -297,33 +341,45 @@ object PrayerAlarmScheduler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         alarmManager.cancel(legacyPendingIntent)
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("enabled_${prayer.type.name}", false)
+            .apply()
     }
 
     fun scheduleAllActivePrayers(context: Context, prayers: List<PrayerTimeItem>) {
         PrayerAlarmService.createNotificationChannel(context)
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+        val storedPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = storedPrefs.edit()
         val now = System.currentTimeMillis()
         
         prayers.forEach { prayer ->
             if (prayer.type != PrayerType.SUNRISE) {
-                if (prayer.isAlarmEnabled) {
+                val enabled = storedPrefs.getBoolean("enabled_${prayer.type.name}", prayer.isAlarmEnabled)
+                val scheduledPrayer = prayer.copy(isAlarmEnabled = enabled)
+                if (enabled) {
                     var triggerTime = prayer.timeMillis
                     while (triggerTime <= now) {
                         triggerTime += 24 * 60 * 60 * 1000L
                     }
-                    val itemToSchedule = prayer.copy(timeMillis = triggerTime)
+                    val itemToSchedule = scheduledPrayer.copy(timeMillis = triggerTime)
                     schedulePrayerAlarm(context, itemToSchedule)
                     prefs.putLong("time_${prayer.type.name}", triggerTime)
                     prefs.putString("fmt_${prayer.type.name}", prayer.timeFormatted)
                     prefs.putBoolean("enabled_${prayer.type.name}", true)
                 } else {
-                    cancelPrayerAlarm(context, prayer)
+                    cancelPrayerAlarm(context, scheduledPrayer)
                     prefs.putBoolean("enabled_${prayer.type.name}", false)
                 }
             }
         }
         prefs.apply()
         Log.d(TAG, "Scheduled and persisted all active daily prayers (Fajr, Dhuhr, Asr, Maghrib, Isha)")
+    }
+
+    fun scheduleLocalPrayerTimes(context: Context) {
+        val (_, prayers) = AladhanRepository.getSahiwalFallbackSchedule()
+        scheduleAllActivePrayers(context, prayers)
     }
 
     fun rescheduleFromStorage(context: Context) {

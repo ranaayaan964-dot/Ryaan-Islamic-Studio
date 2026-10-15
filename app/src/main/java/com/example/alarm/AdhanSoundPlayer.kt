@@ -8,6 +8,7 @@ import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -25,6 +26,8 @@ object AdhanSoundPlayer {
     private var mediaPlayer: MediaPlayer? = null
     private var synthesisJob: Job? = null
     private var isPlaying = false
+    private var audioManager: AudioManager? = null
+    private var originalAlarmVolume: Int? = null
 
     fun isPlayingAlert(): Boolean = isPlaying
 
@@ -35,6 +38,7 @@ object AdhanSoundPlayer {
     fun playAdhanAlert(context: Context, looping: Boolean = false, onComplete: (() -> Unit)? = null) {
         stopAdhan()
         isPlaying = true
+        boostAlarmVolume(context)
 
         // Trigger vibration
         vibrateDevice(context)
@@ -51,7 +55,6 @@ object AdhanSoundPlayer {
 
             if (alertUri != null) {
                 val player = MediaPlayer().apply {
-                    setDataSource(context, alertUri)
                     setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_ALARM)
@@ -59,6 +62,8 @@ object AdhanSoundPlayer {
                             .setLegacyStreamType(AudioManager.STREAM_ALARM)
                             .build()
                     )
+                            setDataSource(context, alertUri)
+                            setWakeMode(context.applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
                     @Suppress("DEPRECATION")
                     setAudioStreamType(AudioManager.STREAM_ALARM)
                     isLooping = looping
@@ -165,6 +170,7 @@ object AdhanSoundPlayer {
                 Log.e(TAG, "Chime synthesis error: ${e.message}")
             } finally {
                 isPlaying = false
+                restoreAlarmVolume()
                 onComplete?.invoke()
             }
         }
@@ -179,6 +185,35 @@ object AdhanSoundPlayer {
             mediaPlayer?.release()
         } catch (_: Exception) {}
         mediaPlayer = null
+        restoreAlarmVolume()
+    }
+
+    private fun restoreAlarmVolume() {
+        originalAlarmVolume?.let { previousVolume ->
+            try {
+                audioManager?.setStreamVolume(AudioManager.STREAM_ALARM, previousVolume, 0)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not restore alarm stream volume", e)
+            }
+        }
+        originalAlarmVolume = null
+    }
+
+    private fun boostAlarmVolume(context: Context) {
+        val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        audioManager = manager
+        try {
+            if (originalAlarmVolume == null) {
+                originalAlarmVolume = manager.getStreamVolume(AudioManager.STREAM_ALARM)
+            }
+            manager.setStreamVolume(
+                AudioManager.STREAM_ALARM,
+                manager.getStreamMaxVolume(AudioManager.STREAM_ALARM),
+                0
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not raise alarm stream volume", e)
+        }
     }
 
     private fun vibrateDevice(context: Context) {

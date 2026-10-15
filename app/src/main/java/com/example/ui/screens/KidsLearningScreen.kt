@@ -46,6 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -111,98 +112,171 @@ fun KidsLearningScreen(
         listOf(
             KidsVideoEpisode(
                 id = "1",
-                title = "Prophet Muhammad (SAW) - Best of Creation",
-                description = "The beautiful life, mercy, honesty, and character of our beloved Prophet Muhammad (peace be upon him).",
+                title = "Prophet Adam (AS)",
+                description = "Learn about the first human and prophet, and how Allah created the beginning of humanity with mercy and guidance.",
                 category = "Stories of the Prophets",
-                duration = "14:20",
-                ageRating = "Ages 4-14",
-                youtubeUrl = "https://www.youtube.com/watch?v=O7X-bE-h26s",
-                colorAccent = DeepRoyalEmerald,
-                quizQuestion = "What was the Prophet Muhammad (SAW) known as even before prophethood?",
-                quizOptions = listOf("Al-Amin (The Trustworthy)", "The Merchant", "The Traveler", "The King"),
+                duration = "10:00",
+                ageRating = "Ages 4-12",
+                youtubeUrl = "https://www.youtube.com/watch?v=xxnZuAHCAjY",
+                colorAccent = RadiantEmerald,
+                quizQuestion = "Who was the first human and prophet?",
+                quizOptions = listOf("Prophet Adam (AS)", "Prophet Nuh (AS)", "Prophet Musa (AS)", "Prophet Ibrahim (AS)"),
                 correctIndex = 0
             ),
             KidsVideoEpisode(
                 id = "2",
-                title = "The Ark of Prophet Nuh (AS)",
-                description = "The inspiring story of Prophet Nuh building the great Ark with steadfast patience and trusting in Allah.",
+                title = "Prophet Nuh (AS)",
+                description = "The inspiring story of the Ark, patience, and the promise of Allah's mercy in the face of hardship.",
                 category = "Stories of the Prophets",
                 duration = "12:15",
                 ageRating = "Ages 4-12",
-                youtubeUrl = "https://www.youtube.com/watch?v=2TqLw7tQvD8",
-                colorAccent = RadiantEmerald,
-                quizQuestion = "What pairs did Prophet Nuh (AS) take onto the Ark by Allah's command?",
-                quizOptions = listOf("Only birds", "A male and female pair of every creature", "Only domestic sheep", "None"),
-                correctIndex = 1
+                youtubeUrl = "https://www.youtube.com/watch?v=d2D6WuKlymM",
+                colorAccent = DeepRoyalEmerald,
+                quizQuestion = "What pairs were saved by Allah on the Ark?",
+                quizOptions = listOf("A male and female pair of every creature", "Only birds", "Only animals", "No one"),
+                correctIndex = 0
             ),
             KidsVideoEpisode(
                 id = "3",
-                title = "Prophet Ibrahim (AS) & The Holy Kaaba",
-                description = "How Prophet Ibrahim and his son Ismail (peace be upon them) built the foundations of the sacred Kaaba in Makkah.",
+                title = "Prophet Hud (AS)",
+                description = "A gentle lesson in obedience, faith, and the consequences of turning away from Allah's guidance.",
+                category = "Stories of the Prophets",
+                duration = "10:00",
+                ageRating = "Ages 5-12",
+                youtubeUrl = "https://www.youtube.com/watch?v=KZjf53aqCEs",
+                colorAccent = GoldenAmber,
+                quizQuestion = "Which nation was called by Prophet Hud (AS)?",
+                quizOptions = listOf("Aad", "Thamud", "Madyan", "Quraysh"),
+                correctIndex = 0
+            ),
+            KidsVideoEpisode(
+                id = "4",
+                title = "Prophet Salih (AS)",
+                description = "The story of Prophet Salih (AS), the people of Thamud, and the signs Allah gave them.",
+                category = "Stories of the Prophets",
+                duration = "10:00",
+                ageRating = "Ages 5-12",
+                youtubeUrl = "https://www.youtube.com/watch?v=_RUNc_lZBVA",
+                colorAccent = RadiantEmerald,
+                quizQuestion = "Which people did Prophet Salih (AS) call to worship Allah?",
+                quizOptions = listOf("Thamud", "Aad", "Madyan", "Quraysh"),
+                correctIndex = 0
+            ),
+            KidsVideoEpisode(
+                id = "5",
+                title = "Prophet Ibrahim (AS)",
+                description = "The story of the Kaaba, the call to monotheism, and the patience of Prophet Ibrahim (AS).",
                 category = "Stories of the Prophets",
                 duration = "13:45",
                 ageRating = "Ages 5-14",
-                youtubeUrl = "https://www.youtube.com/watch?v=m4xG8e8z4Yk",
+                youtubeUrl = "https://www.youtube.com/watch?v=lZu173pTldI",
                 colorAccent = GoldenAmber,
                 quizQuestion = "Who helped Prophet Ibrahim (AS) raise the foundations of the Kaaba?",
                 quizOptions = listOf("Prophet Ismail (AS)", "Prophet Musa (AS)", "Prophet Yunus (AS)", "Prophet Isa (AS)"),
                 correctIndex = 0
             ),
             KidsVideoEpisode(
-                id = "4",
-                title = "Prophet Yunus (AS) in the Whale",
-                description = "The supplication of Dhun-Noon inside the darkness of the belly of the whale that relieves all distress.",
-                category = "Stories of the Prophets",
-                duration = "11:10",
-                ageRating = "Ages 4-12",
-                youtubeUrl = "https://www.youtube.com/watch?v=QxU2w_b-KIE",
-                colorAccent = Color(0xFF0284C7),
-                quizQuestion = "What powerful Dua did Prophet Yunus (AS) make inside the belly of the whale?",
-                quizOptions = listOf(
-                    "La ilaha illa Anta Subhanaka inni kuntu minaz-zalimin",
-                    "Rabbi zidni 'ilma",
-                    "Hasbunallahu wa ni'mal wakeel",
-                    "Rabbana atina fid-dunya hasanah"
-                ),
-                correctIndex = 0
-            ),
-            KidsVideoEpisode(
-                id = "5",
-                title = "Tajweed Fun: The Letters of Qalqalah",
-                description = "Learn how to make the echoing bouncing sound on the 5 letters of Qalqalah (Qutb Jadd) with cartoon animations.",
-                category = "Tajweed & Arabic Alphabet",
-                duration = "08:30",
-                ageRating = "Ages 5-12",
-                youtubeUrl = "https://www.youtube.com/watch?v=kYv_8kQ_Wxo",
-                colorAccent = Color(0xFF8B5CF6),
-                quizQuestion = "Which mnemonic phrase gathers all 5 Qalqalah letters (ق ط ب ج د)?",
-                quizOptions = listOf("Qutb Jadd (ق ط ب ج د)", "Hayyun Qayyum", "Al-Fatihah", "Makharij"),
-                correctIndex = 0
-            ),
-            KidsVideoEpisode(
                 id = "6",
-                title = "5 Daily Sunnah Manners for Muslim Children",
-                description = "Manners of eating with the right hand, smiling, saying Bismillah, greeting with Salam, and showing respect to elders.",
-                category = "Daily Islamic Morals",
-                duration = "07:25",
-                ageRating = "Ages 4-10",
-                youtubeUrl = "https://www.youtube.com/watch?v=8lJmS5H_6pE",
-                colorAccent = DeepRoyalEmerald,
-                quizQuestion = "What should every Muslim child say before starting to eat or drink?",
-                quizOptions = listOf("Bismillah (In the name of Allah)", "Alhamdulillah", "Astaghfirullah", "Allahu Akbar"),
+                title = "Prophet Yusuf (AS)",
+                description = "The story of Prophet Yusuf (AS), patience through trials, and the beauty of forgiveness.",
+                category = "Stories of the Prophets",
+                duration = "12:00",
+                ageRating = "Ages 5-14",
+                youtubeUrl = "https://www.youtube.com/watch?v=gadnINKEibU",
+                colorAccent = GoldenAmber,
+                quizQuestion = "Which quality did Prophet Yusuf (AS) show when he forgave his brothers?",
+                quizOptions = listOf("Forgiveness", "Pride", "Impatience", "Jealousy"),
                 correctIndex = 0
             ),
             KidsVideoEpisode(
                 id = "7",
-                title = "Prophet Musa (AS) & The Parting of the Sea",
-                description = "The miracle granted to Prophet Musa by Allah when standing before Pharaoh and the miraculous dry path through the sea.",
+                title = "Prophet Ayyub (AS)",
+                description = "Learn how Prophet Ayyub (AS) remained patient and trusted Allah during hardship.",
+                category = "Stories of the Prophets",
+                duration = "10:00",
+                ageRating = "Ages 4-12",
+                youtubeUrl = "https://www.youtube.com/watch?v=SvcSVsgy09M",
+                colorAccent = RadiantEmerald,
+                quizQuestion = "Which quality did Prophet Ayyub (AS) show during hardship?",
+                quizOptions = listOf("Patience", "Envy", "Anger", "Pride"),
+                correctIndex = 0
+            ),
+            KidsVideoEpisode(
+                id = "8",
+                title = "Prophet Yunus (AS)",
+                description = "A calming story about prayer, reliance on Allah, and the mercy that follows hardship.",
+                category = "Stories of the Prophets",
+                duration = "11:00",
+                ageRating = "Ages 4-12",
+                youtubeUrl = "https://www.youtube.com/watch?v=ICbA_GMZQoY",
+                colorAccent = Color(0xFF0284C7),
+                quizQuestion = "What supplication did Prophet Yunus (AS) make in the darkness?",
+                quizOptions = listOf("La ilaha illa Anta Subhanaka inni kuntu minaz-zalimin", "Alhamdulillah", "Astaghfirullah", "Bismillah"),
+                correctIndex = 0
+            ),
+            KidsVideoEpisode(
+                id = "9",
+                title = "Prophet Musa (AS)",
+                description = "The miracle of the sea, the courage of faith, and the strength of trust in Allah.",
                 category = "Stories of the Prophets",
                 duration = "15:00",
                 ageRating = "Ages 6-14",
-                youtubeUrl = "https://www.youtube.com/watch?v=1bMihjX61Qk",
+                youtubeUrl = "https://www.youtube.com/watch?v=WQi07cDzr6c",
                 colorAccent = Color(0xFFD97706),
-                quizQuestion = "What miracle was Prophet Musa (AS) granted with his staff at the Red Sea?",
-                quizOptions = listOf("The sea parted into towering walls of water", "It rained jewels", "A golden ship appeared", "None"),
+                quizQuestion = "What miracle was Prophet Musa (AS) granted at the sea?",
+                quizOptions = listOf("The sea parted", "A mountain moved", "It rained gold", "A river appeared"),
+                correctIndex = 0
+            ),
+            KidsVideoEpisode(
+                id = "10",
+                title = "Prophet Dawud (AS)",
+                description = "Discover the courage, wisdom, and justice of Prophet Dawud (AS) in service to Allah.",
+                category = "Stories of the Prophets",
+                duration = "10:00",
+                ageRating = "Ages 5-14",
+                youtubeUrl = "https://www.youtube.com/watch?v=IcSZX4QClN0",
+                colorAccent = Color(0xFF0284C7),
+                quizQuestion = "What quality is Prophet Dawud (AS) remembered for as a leader?",
+                quizOptions = listOf("Justice", "Greed", "Carelessness", "Arrogance"),
+                correctIndex = 0
+            ),
+            KidsVideoEpisode(
+                id = "11",
+                title = "Prophet Sulaiman (AS)",
+                description = "The story of wisdom, compassion, and the blessings Allah gave Prophet Sulaiman (AS).",
+                category = "Stories of the Prophets",
+                duration = "11:00",
+                ageRating = "Ages 5-14",
+                youtubeUrl = "https://www.youtube.com/watch?v=U2MKoxtvCII",
+                colorAccent = GoldenAmber,
+                quizQuestion = "Who granted Prophet Sulaiman (AS) wisdom and blessings?",
+                quizOptions = listOf("Allah", "A king", "A traveler", "A merchant"),
+                correctIndex = 0
+            ),
+            KidsVideoEpisode(
+                id = "12",
+                title = "Prophet Isa (AS)",
+                description = "A gentle, child-friendly introduction to Prophet Isa (AS) and his message of faith and devotion.",
+                category = "Stories of the Prophets",
+                duration = "10:00",
+                ageRating = "Ages 4-12",
+                youtubeUrl = "https://www.youtube.com/watch?v=cR3TvX9S1tA",
+                colorAccent = DeepRoyalEmerald,
+                quizQuestion = "Who was the mother of Prophet Isa (AS)?",
+                quizOptions = listOf("Maryam (AS)", "Asiya (AS)", "Hajar (AS)", "Sarah (AS)"),
+                correctIndex = 0
+            ),
+            KidsVideoEpisode(
+                id = "13",
+                title = "Prophet Muhammad (SAW)",
+                description = "A beautiful introduction to the life, mercy, and character of the final Prophet Muhammad (SAW).",
+                category = "Stories of the Prophets",
+                duration = "14:20",
+                ageRating = "Ages 4-14",
+                youtubeUrl = "https://www.youtube.com/watch?v=WEEORXFj-lo",
+                colorAccent = DeepRoyalEmerald,
+                quizQuestion = "What was the Prophet Muhammad (SAW) known as before prophethood?",
+                quizOptions = listOf("Al-Amin (The Trustworthy)", "The Merchant", "The Traveler", "The King"),
                 correctIndex = 0
             )
         )
@@ -213,6 +287,15 @@ fun KidsLearningScreen(
     var selectedQuizAnswer by remember { mutableStateOf<Int?>(null) }
     var hasAnsweredCorrectly by remember { mutableStateOf(false) }
     var earnedStars by remember { mutableIntStateOf(15) }
+
+    fun resetQuizState() {
+        selectedQuizAnswer = null
+        hasAnsweredCorrectly = false
+    }
+
+    LaunchedEffect(selectedEpisode.id) {
+        resetQuizState()
+    }
 
     fun openYouTubeVideo(url: String) {
         try {
@@ -478,8 +561,7 @@ fun KidsLearningScreen(
 
                             Button(
                                 onClick = {
-                                    selectedQuizAnswer = null
-                                    hasAnsweredCorrectly = false
+                                    resetQuizState()
                                     isQuizOpen = true
                                 },
                                 modifier = Modifier
@@ -544,11 +626,13 @@ fun KidsLearningScreen(
                         isSelected = ep.id == selectedEpisode.id,
                         onSelect = {
                             selectedEpisode = ep
-                        },
-                        onOpen = {
-                            selectedEpisode = ep
-                            openYouTubeVideo(ep.youtubeUrl)
-                        }
+                    resetQuizState()
+                },
+                onOpen = {
+                    selectedEpisode = ep
+                    resetQuizState()
+                    openYouTubeVideo(ep.youtubeUrl)
+                }
                     )
                 }
             }
@@ -588,11 +672,13 @@ fun KidsLearningScreen(
                         isSelected = ep.id == selectedEpisode.id,
                         onSelect = {
                             selectedEpisode = ep
-                        },
-                        onOpen = {
-                            selectedEpisode = ep
-                            openYouTubeVideo(ep.youtubeUrl)
-                        }
+                    resetQuizState()
+                },
+                onOpen = {
+                    selectedEpisode = ep
+                    resetQuizState()
+                    openYouTubeVideo(ep.youtubeUrl)
+                }
                     )
                 }
             }
@@ -644,7 +730,10 @@ fun KidsLearningScreen(
                                 )
                             }
                             IconButton(
-                                onClick = { isQuizOpen = false },
+                                onClick = {
+                                    isQuizOpen = false
+                                    resetQuizState()
+                                },
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(

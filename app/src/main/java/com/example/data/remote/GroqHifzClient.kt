@@ -46,7 +46,6 @@ object GroqHifzClient {
     }
 
     private const val GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
-    private const val GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
     private val okHttpClient by lazy {
         OkHttpClient.Builder()
@@ -63,17 +62,14 @@ object GroqHifzClient {
     }
 
     private val groqWhisperAdapter by lazy { moshi.adapter(GroqWhisperResponse::class.java) }
-    private val groqChatReqAdapter by lazy { moshi.adapter(GroqChatRequest::class.java) }
-    private val groqChatResAdapter by lazy { moshi.adapter(GroqChatResponse::class.java) }
-
     /**
      * Posts the audio file (.m4a/.wav) to Groq's Audio endpoint using whisper-large-v3 with language="ar".
      * Returns the exact Arabic transcription of what the student recited.
      */
     suspend fun transcribeAudio(audioFile: File): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val groqApiKey = getResolvedGroqKey()
-            if (groqApiKey.isBlank()) {
+            val groqApiKeys = DualAiScholarEngine.groqApiKeyPool()
+            if (groqApiKeys.isEmpty()) {
                 return@withContext Result.failure(Exception("Speech service is not configured."))
             }
 
@@ -88,6 +84,24 @@ object GroqHifzClient {
                 else -> "audio/m4a"
             }
 
+            for (apiKey in groqApiKeys) {
+                val transcript = transcribeWithKey(audioFile, mimeType, apiKey)
+                if (!transcript.isNullOrBlank()) {
+                    Log.i(TAG, "Groq Whisper Arabic transcription succeeded using a configured key")
+                    return@withContext Result.success(transcript)
+                }
+            }
+            Result.failure(Exception("Audio transcription unavailable from configured providers. Please try again."))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Log.e(TAG, "Exception during Groq Whisper audio transcription", e)
+            Result.failure(Exception("Speech service temporarily unavailable. Please try again."))
+        }
+    }
+
+    private fun transcribeWithKey(audioFile: File, mimeType: String, apiKey: String): String? {
+        return try {
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("model", "whisper-large-v3")
@@ -98,47 +112,22 @@ object GroqHifzClient {
                     audioFile.asRequestBody(mimeType.toMediaType())
                 )
                 .build()
-
             val request = Request.Builder()
                 .url(GROQ_AUDIO_URL)
-                .addHeader("Authorization", "Bearer $groqApiKey")
+                .header("Authorization", "Bearer $apiKey")
                 .post(requestBody)
                 .build()
-
-            val response = try {
-                okHttpClient.newCall(request).execute()
-            } catch (netEx: Exception) {
-                Log.w(TAG, "Groq Whisper network exception: ${netEx.message}")
-                return@withContext Result.failure(Exception("Network unstable. Please check your connection and try again."))
+            okHttpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Groq Whisper returned HTTP ${response.code}; trying the next configured key")
+                    return null
+                }
+                groqWhisperAdapter.fromJson(body)?.text?.trim()?.takeIf(String::isNotBlank)
             }
-
-            response.use { resp ->
-                val resBody = try { resp.body?.string() } catch (_: Exception) { null }
-
-                if (!resp.isSuccessful || resBody.isNullOrBlank()) {
-                    Log.e(TAG, "Groq Whisper API HTTP ${resp.code} error: $resBody")
-                    return@withContext Result.failure(Exception("Audio transcription unavailable right now. Please try again."))
-                }
-
-                val parsed = try {
-                    groqWhisperAdapter.fromJson(resBody)
-                } catch (jsonEx: Exception) {
-                    Log.w(TAG, "Groq Whisper JSON parsing failed: ${jsonEx.message}")
-                    null
-                }
-                val transcript = parsed?.text?.trim()
-                if (transcript.isNullOrBlank()) {
-                    return@withContext Result.failure(Exception("Recitation could not be captured clearly. Please recite aloud."))
-                }
-
-                Log.i(TAG, "Groq Whisper Arabic transcription success: $transcript")
-                Result.success(transcript)
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Throwable) {
-            Log.e(TAG, "Exception during Groq Whisper audio transcription", e)
-            Result.failure(Exception("Speech service temporarily unavailable. Please try again."))
+        } catch (e: Exception) {
+            Log.w(TAG, "Groq Whisper request failed; trying the next configured key: ${e::class.java.simpleName}")
+            null
         }
     }
 
@@ -156,21 +145,23 @@ object GroqHifzClient {
             // Step 1: Transcribe user's speech via Whisper Large v3
             val transcriptResult = transcribeAudio(audioFile)
             val whisperTranscript = transcriptResult.getOrElse { error ->
-                Log.w(TAG, "Whisper transcription failed: ${error.message}")
-                "تلاوة مسجلة"
+                Log.w(TAG, "Whisper transcription failed; refusing to score a placeholder transcript: ${error.message}")
+                return@withContext Result.failure(error)
             }
 
             // Step 2: Tajweed & Hifz comparison prompt
-            val prompt = "You are an expert Quran Hifz teacher. The student was supposed to recite: [$targetText]. The student actually recited: [$whisperTranscript]. Identify missed words, extra words, and Tajweed mistakes. Be precise and strict. Output a short, encouraging feedback message."
+            val prompt = "Compare the verified transcript of the student's recitation with the exact target text. Target surah: $surahName. Target Arabic: [$targetText]. Student transcript: [$whisperTranscript]. Identify only observable missing, substituted, or extra words. Do not claim to hear audio or assess sound-based Tajweed from a text transcript. Give concise, encouraging feedback."
+            val routed = DualAiScholarEngine.askScholarWithSource(
+                userQuery = prompt,
+                customSystemPrompt = "You are a careful Quran memorization text-comparison assistant. Compare only the provided Arabic strings. Do not invent ayat, references, pronunciation observations, or Tajweed errors that cannot be inferred from text. If evidence is insufficient, say so clearly."
+            )
+            val feedback = if (routed.source == "Provider failover unavailable") {
+                compareTranscriptLocally(targetText, whisperTranscript)
+            } else {
+                routed.answer
+            }
 
-            val feedback = callGroqChatModel("openai/gpt-oss-120b", prompt)
-                ?: callGroqChatModel("openai/gpt-oss-20b", prompt)
-                ?: callGroqChatModel("qwen/qwen3.8-27b", prompt)
-                ?: "Recitation captured. Focus on smooth Makhraj and 2-count Madd elongation for $surahName. Keep practicing regularly!"
-
-            val isAccurate = !feedback.contains("missed", ignoreCase = true) &&
-                    !feedback.contains("incorrect", ignoreCase = true) &&
-                    !feedback.contains("خطأ", ignoreCase = true)
+                val isAccurate = normalizeArabicWords(targetText) == normalizeArabicWords(whisperTranscript)
 
             Result.success(
                 GroqHifzResult(
@@ -195,59 +186,35 @@ object GroqHifzClient {
         }
     }
 
-    private fun callGroqChatModel(modelName: String, prompt: String): String? {
-        return try {
-            val groqApiKey = getResolvedGroqKey()
-            if (groqApiKey.isBlank()) return null
-
-            val groqReq = GroqChatRequest(
-                model = modelName,
-                messages = listOf(
-                    GroqMessage(
-                        role = "system",
-                        content = "You are an expert Quran Hifz and Tajweed teacher. Identify missed words, extra words, and Tajweed mistakes. Be precise, strict, and encouraging."
-                    ),
-                    GroqMessage(
-                        role = "user",
-                        content = prompt
-                    )
-                ),
-                temperature = 0.3f,
-                maxTokens = 1024
-            )
-
-            val jsonBody = try {
-                groqChatReqAdapter.toJson(groqReq)
-            } catch (e: Exception) {
-                return null
-            }
-
-            val request = Request.Builder()
-                .url(GROQ_CHAT_URL)
-                .addHeader("Authorization", "Bearer $groqApiKey")
-                .addHeader("Content-Type", "application/json")
-                .post(jsonBody.toRequestBody("application/json".toMediaType()))
-                .build()
-
-            okHttpClient.newCall(request).execute().use { response ->
-                val resString = try { response.body?.string() } catch (_: Exception) { null }
-
-                if (response.isSuccessful && !resString.isNullOrBlank()) {
-                    val chatRes = try {
-                        groqChatResAdapter.fromJson(resString)
-                    } catch (_: Exception) {
-                        null
-                    }
-                    val content = chatRes?.choices?.firstOrNull()?.message?.content?.trim()
-                    if (!content.isNullOrBlank()) {
-                        return content
-                    }
-                }
-                null
-            }
-        } catch (e: Throwable) {
-            Log.w(TAG, "Groq model $modelName request failed: ${e.message}")
-            null
+    private fun compareTranscriptLocally(target: String, transcript: String): String {
+        val targetWords = normalizeArabicWords(target)
+        val transcriptWords = normalizeArabicWords(transcript)
+        if (targetWords.isEmpty() || transcriptWords.isEmpty()) {
+            return "The transcript or target text was empty, so no comparison score is available."
         }
+        if (targetWords == transcriptWords) {
+            return "The transcribed words match the target text. Audio-based Tajweed and pronunciation still require a qualified listening review."
+        }
+
+        val remaining = transcriptWords.toMutableList()
+        val missing = targetWords.filter { word ->
+            val index = remaining.indexOf(word)
+            if (index >= 0) {
+                remaining.removeAt(index)
+                false
+            } else {
+                true
+            }
+        }
+        val missingText = missing.distinct().joinToString(" ").ifBlank { "none identified" }
+        val extraText = remaining.distinct().joinToString(" ").ifBlank { "none identified" }
+        return "Text comparison only: possible missing/substituted words: $missingText. Possible extra words: $extraText. Please review the audio with a qualified teacher for pronunciation and Tajweed."
     }
+
+    private fun normalizeArabicWords(text: String): List<String> = text
+        .replace(Regex("[\\u064B-\\u065F\\u0670\\u0640]"), "")
+        .replace(Regex("[\\p{Punct}،؛؟]"), " ")
+        .trim()
+        .split(Regex("\\s+"))
+        .filter(String::isNotBlank)
 }

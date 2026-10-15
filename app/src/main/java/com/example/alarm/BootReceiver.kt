@@ -25,7 +25,7 @@ class BootReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 val appContext = context.applicationContext
-                PrayerAlarmScheduler.ensureAllAlarmsScheduled(appContext)
+                PrayerAlarmScheduler.scheduleLocalPrayerTimes(appContext)
                 NamazWorkManagerScheduler.scheduleAllNamazFromMetadata(appContext)
                 NamazWorkManagerScheduler.schedulePeriodicDailySync(appContext)
             } catch (e: Exception) {

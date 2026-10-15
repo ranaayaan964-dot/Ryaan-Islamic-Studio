@@ -4,17 +4,39 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Centered within 66dp safe zone (21 to 87) -->
-    <!-- Golden Crescent Moon -->
+
+    <!-- Crescent moon -->
     <path
-        android:fillColor="#F6C343"
-        android:pathData="M54,26 C40.2,26 29,37.2 29,51 C29,64.8 40.2,76 54,76 C60.4,76 66.2,73.6 70.6,69.6 C57.8,68.8 48,58.4 48,45.6 C48,37.4 52.2,30.2 58.6,26.4 C57.1,26.1 55.6,26 54,26 Z" />
-    <!-- Islamic 8-pointed star in gold -->
+        android:fillColor="#F5C76A"
+        android:pathData="M68,25c-12.6,0-22.8,10.2-22.8,22.8C45.2,60.4,55.4,70.6,68,70.6c6.9,0,13.2-3.1,17.5-8.1c-3.2,1.1-6.8,1.8-10.5,1.8c-14.1,0-25.5-11.4-25.5-25.5c0-7.1,2.9-13.5,7.6-18.1C68.8,25.1,68.4,25,68,25Z" />
+
+    <!-- Small 8-point star -->
     <path
-        android:fillColor="#FFDF78"
-        android:pathData="M66,35 L68,40 L73,38 L71,43 L76,45 L71,47 L73,52 L68,50 L66,55 L64,50 L59,52 L61,47 L56,45 L61,43 L59,38 L64,40 Z" />
-    <!-- Subtle prayer arch silhouette -->
+        android:fillColor="#FDE9A2"
+        android:pathData="M74,18L76,23L81,21L79,26L84,28L79,30L81,35L76,33L74,38L72,33L67,35L69,30L64,28L69,26L67,21L72,23Z" />
+
+    <!-- Mosque dome + arch -->
     <path
-        android:fillColor="#33FFDF78"
-        android:pathData="M46,72 C46,65 50,60 54,60 C58,60 62,65 62,72 Z" />
+        android:fillColor="#F7E6A1"
+        android:pathData="M39,74V48c0-6.8,5.5-12.3,12.3-12.3h5.4c6.8,0,12.3,5.5,12.3,12.3v26H39Z" />
+
+    <path
+        android:fillColor="#E5B450"
+        android:pathData="M37,79h34v6H37z" />
+
+    <path
+        android:fillColor="#E5B450"
+        android:pathData="M45,73h18v10H45z" />
+
+    <path
+        android:fillColor="#FDE9A2"
+        android:pathData="M50,50h8v18h-8z" />
+
+    <path
+        android:fillColor="#FDE9A2"
+        android:pathData="M44,58h20v4H44z" />
+
+    <path
+        android:fillColor="#FFD76A"
+        android:pathData="M54,30c-7.7,0-14,6.3-14,14c0,3.4,1.2,6.6,3.4,9.1c2.7-2.4,6.3-3.8,10.3-3.8c6.3,0,11.8,3.5,14.5,8.7c4.3-2.7,7.2-7.4,7.2-12.9C75,36.3,68.7,30,61,30H54Z" />
 </vector>

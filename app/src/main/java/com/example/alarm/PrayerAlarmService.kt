@@ -13,6 +13,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -48,6 +49,9 @@ class PrayerAlarmService : Service() {
     private var mediaPlayer: MediaPlayer? = null
     private var audioManager: AudioManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null
+    private var originalAlarmVolume: Int? = null
+    private var fallbackToneGenerator: ToneGenerator? = null
+    private var fallbackToneJob: Job? = null
     private var foregroundStarted = false
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var autoTimeoutJob: Job? = null
@@ -176,7 +180,7 @@ class PrayerAlarmService : Service() {
                 "RyaanIslamicApp:PrayerAlarmWakeLock"
             )?.apply {
                 setReferenceCounted(false)
-                acquire(10 * 60 * 1000L) // 10 minutes maximum safety limit
+                acquire()
             }
             Log.d(TAG, "WakeLock acquired for prayer alarm")
         } catch (e: Exception) {
@@ -596,6 +600,7 @@ class PrayerAlarmService : Service() {
      */
     private fun playAlarmAudio(prayerName: String, isSnooze: Boolean) {
         audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        boostAlarmVolume()
 
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_ALARM)
@@ -625,7 +630,11 @@ class PrayerAlarmService : Service() {
                         setAudioAttributes(audioAttributes)
                         setDataSource(snoozeFile.absolutePath)
                     }
-                    preparePlayerAsync(player, looping = true)
+                    preparePlayerAsync(
+                        player,
+                        looping = true,
+                        onError = { playAlarmFallback(audioAttributes) }
+                    )
                     return
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to play local snooze MP3, proceeding to custom sound", e)
@@ -653,10 +662,10 @@ class PrayerAlarmService : Service() {
                         setDataSource(customSoundUriStr)
                     }
                 }
-                preparePlayerAsync(player, looping = true) {
+                preparePlayerAsync(player, looping = true, onPrepared = {
                     it.start()
                     Log.d(TAG, "Custom alarm sound started successfully on STREAM_ALARM")
-                }
+                }, onError = { playAlarmFallback(audioAttributes) })
                 return
             }
         } catch (e: Exception) {
@@ -680,7 +689,9 @@ class PrayerAlarmService : Service() {
                     audioManager?.generateAudioSessionId() ?: 0
                 )
                 if (player != null) {
-                    startPreparedPlayer(player, looping = true)
+                    startPreparedPlayer(player, looping = true) {
+                        playAlarmFallback(audioAttributes)
+                    }
                     Log.d(TAG, "MediaPlayer successfully playing Adhan loop on STREAM_ALARM")
                     return
                 } else {
@@ -701,12 +712,91 @@ class PrayerAlarmService : Service() {
                     setAudioAttributes(audioAttributes)
                     setDataSource(this@PrayerAlarmService, ringtoneUri)
                 }
-                preparePlayerAsync(player, looping = true)
+                preparePlayerAsync(player, looping = true, onError = { playGeneratedAlarmBeep() })
                 Log.d(TAG, "MediaPlayer playing fallback system ringtone")
+                return
             } catch (ex: Exception) {
                 Log.e(TAG, "Failed fallback ringtone player", ex)
             }
         }
+
+        playGeneratedAlarmBeep()
+    }
+
+    private fun boostAlarmVolume() {
+        val manager = audioManager ?: return
+        try {
+            if (originalAlarmVolume == null) {
+                originalAlarmVolume = manager.getStreamVolume(AudioManager.STREAM_ALARM)
+            }
+            val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            manager.setStreamVolume(AudioManager.STREAM_ALARM, maxVolume, 0)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not raise alarm stream volume", e)
+        }
+    }
+
+    private fun restoreAlarmVolume() {
+        val volume = originalAlarmVolume ?: return
+        try {
+            audioManager?.setStreamVolume(AudioManager.STREAM_ALARM, volume, 0)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not restore alarm stream volume", e)
+        } finally {
+            originalAlarmVolume = null
+        }
+    }
+
+    private fun playAlarmFallback(audioAttributes: AudioAttributes) {
+        val defaultAdhanId = resources.getIdentifier("default_adhan", "raw", packageName)
+        if (defaultAdhanId != 0) {
+            val player = MediaPlayer.create(this, defaultAdhanId, audioAttributes, audioManager?.generateAudioSessionId() ?: 0)
+            if (player != null) {
+                startPreparedPlayer(player, looping = true) { playGeneratedAlarmBeep() }
+                return
+            }
+        }
+
+        val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        if (ringtoneUri != null) {
+            try {
+                val player = MediaPlayer().apply {
+                    setAudioAttributes(audioAttributes)
+                    setDataSource(this@PrayerAlarmService, ringtoneUri)
+                }
+                preparePlayerAsync(player, looping = true, onError = { playGeneratedAlarmBeep() })
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not prepare system alarm fallback", e)
+            }
+        }
+        playGeneratedAlarmBeep()
+    }
+
+    private fun playGeneratedAlarmBeep() {
+        stopGeneratedAlarmBeep()
+        try {
+            fallbackToneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 100).also { generator ->
+                generator.startTone(ToneGenerator.TONE_PROP_BEEP, 900)
+            }
+            fallbackToneJob = serviceScope.launch {
+                while (true) {
+                    delay(1500L)
+                    fallbackToneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 900)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not start generated alarm beep", e)
+            stopGeneratedAlarmBeep()
+        }
+    }
+
+    private fun stopGeneratedAlarmBeep() {
+        fallbackToneJob?.cancel()
+        fallbackToneJob = null
+        fallbackToneGenerator?.release()
+        fallbackToneGenerator = null
     }
 
     private fun buildForegroundNotification(
@@ -777,11 +867,17 @@ class PrayerAlarmService : Service() {
     private fun preparePlayerAsync(
         player: MediaPlayer,
         looping: Boolean,
-        onPrepared: (MediaPlayer) -> Unit = { it.start() }
+        onPrepared: (MediaPlayer) -> Unit = { it.start() },
+        onError: (() -> Unit)? = null
     ) {
         player.isLooping = looping
         mediaPlayer = player
-        watchPlayerErrors(player)
+        try {
+            player.setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not set MediaPlayer wake mode", e)
+        }
+        watchPlayerErrors(player, onError)
         player.setOnPreparedListener { preparedPlayer ->
             try {
                 onPrepared(preparedPlayer)
@@ -798,10 +894,15 @@ class PrayerAlarmService : Service() {
         }
     }
 
-    private fun startPreparedPlayer(player: MediaPlayer, looping: Boolean) {
+    private fun startPreparedPlayer(player: MediaPlayer, looping: Boolean, onError: (() -> Unit)? = null) {
         player.isLooping = looping
         mediaPlayer = player
-        watchPlayerErrors(player)
+        try {
+            player.setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not set MediaPlayer wake mode", e)
+        }
+        watchPlayerErrors(player, onError)
         try {
             player.start()
         } catch (e: Exception) {
@@ -810,10 +911,11 @@ class PrayerAlarmService : Service() {
         }
     }
 
-    private fun watchPlayerErrors(player: MediaPlayer) {
+    private fun watchPlayerErrors(player: MediaPlayer, onError: (() -> Unit)? = null) {
         player.setOnErrorListener { failedPlayer, what, extra ->
             Log.e(TAG, "Alarm audio playback error: what=$what extra=$extra")
             releaseFailedPlayer(failedPlayer)
+            onError?.invoke()
             true
         }
     }
@@ -845,6 +947,7 @@ class PrayerAlarmService : Service() {
         _activePrayerName.value = null
         autoTimeoutJob?.cancel()
         stopExistingPlayer()
+        stopGeneratedAlarmBeep()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
@@ -854,6 +957,7 @@ class PrayerAlarmService : Service() {
         }
 
         releaseWakeLock()
+        restoreAlarmVolume()
 
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         nm?.cancel(NOTIFICATION_ID)
@@ -864,8 +968,10 @@ class PrayerAlarmService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         stopAzanAlarm()
+        releaseWakeLock()
+        restoreAlarmVolume()
         serviceScope.cancel()
+        super.onDestroy()
     }
 }

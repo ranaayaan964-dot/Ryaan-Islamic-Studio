@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.example.data.repository.AladhanRepository
 
 /**
  * Periodic WorkManager Worker that ensures all daily namaz alarm workers
@@ -22,6 +23,14 @@ class DailyNamazSyncWorker(
     override suspend fun doWork(): Result {
         Log.d(TAG, "Running daily Namaz background sync from app metadata...")
         return try {
+            val prayerSchedule = try {
+                AladhanRepository.fetchSahiwalPrayerTimings().getOrThrow()
+            } catch (e: Exception) {
+                Log.w(TAG, "Prayer-time refresh failed; calculating today's schedule locally", e)
+                AladhanRepository.getSahiwalFallbackSchedule()
+            }
+            PrayerAlarmScheduler.scheduleAllActivePrayers(context, prayerSchedule.second)
+
             val config = NamazMetadataProvider.loadNamazMetadata(context)
             if (config.notificationsEnabled) {
                 NamazWorkManagerScheduler.scheduleAllNamazFromMetadata(context)

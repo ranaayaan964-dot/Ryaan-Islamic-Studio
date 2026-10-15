@@ -61,7 +61,8 @@ object PrayerCalculator {
         latitude: Double,
         longitude: Double,
         calendar: Calendar = Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Karachi")),
-        alarmSettings: Map<PrayerType, Boolean> = emptyMap()
+        alarmSettings: Map<PrayerType, Boolean> = emptyMap(),
+        asrShadowFactor: Double = 1.0
     ): List<PrayerTimeItem> {
         val pkZone = java.util.TimeZone.getTimeZone("Asia/Karachi")
         val year = calendar.get(Calendar.YEAR)
@@ -70,7 +71,7 @@ object PrayerCalculator {
         val timezoneOffset = calendar.timeZone.getOffset(calendar.timeInMillis) / 3600000.0
 
         val julianDay = getJulianDay(year, month, day)
-        val raw = computeRawTimes(julianDay, latitude, longitude, timezoneOffset)
+        val raw = computeRawTimes(julianDay, latitude, longitude, timezoneOffset, asrShadowFactor)
 
         val timeFormat = SimpleDateFormat("hh:mm a", Locale.ENGLISH).apply {
             timeZone = pkZone
@@ -170,7 +171,8 @@ object PrayerCalculator {
         julianDay: Double,
         latitude: Double,
         longitude: Double,
-        timezone: Double
+        timezone: Double,
+        asrShadowFactor: Double
     ): RawPrayerTimes {
         val d = julianDay - 2451545.0
         val g = fixAngle(357.529 + 0.98560028 * d)
@@ -200,8 +202,7 @@ object PrayerCalculator {
         val ishaHourAngle = hourAngle(latitude, declination, -ISHA_TWILIGHT_ANGLE)
         val isha = dhuhr + ishaHourAngle
 
-        // Asr (Shafi'i: shadow length factor = 1)
-        val asrAngle = -dAtan(1.0 + dTan(abs(latitude - declination)))
+        val asrAngle = dAtan(1.0 / (asrShadowFactor + dTan(abs(latitude - declination))))
         val asrHourAngle = hourAngle(latitude, declination, asrAngle)
         val asr = dhuhr + asrHourAngle
 

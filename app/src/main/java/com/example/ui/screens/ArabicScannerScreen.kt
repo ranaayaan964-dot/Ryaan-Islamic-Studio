@@ -169,13 +169,14 @@ fun ArabicScannerScreen(
                         try {
                             val base64 = bitmapToBase64(bitmap)
                             val prompt = """
-                                You are an expert Arabic Epigraphist, Calligrapher, and Islamic Mufti.
+                                You are a highly qualified Islamic Scholar and certified translator. Your task is to translate the following Arabic text (from the Quran, Hadith, or Fiqh) verbatim into English and Urdu. DO NOT add any personal opinions, DO NOT summarize, and DO NOT hallucinate meanings. If you cannot perfectly translate a word, leave it in Arabic. Accuracy is a matter of strict religious compliance.
+
                                 Analyze the scanned Arabic calligraphy / Fatwa document:
                                 [Image Data: base64_${base64.take(30)}...]
-                                
+
                                 Provide structured response:
                                 1. EXTRACTED ARABIC TEXT: Transcribe the exact Arabic text.
-                                2. TRANSLATION: Provide both an elegant English translation AND an accurate Urdu translation.
+                                2. TRANSLATION: Provide both a verbatim English translation and an accurate Urdu translation.
                                 3. CONTEXT & FIQH COMMENTARY: Islamic context, script style (Thuluth, Naskh, Diwani), or legal rulings if a Fatwa document.
                             """.trimIndent()
 

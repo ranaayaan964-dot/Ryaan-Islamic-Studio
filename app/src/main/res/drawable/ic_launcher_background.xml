@@ -15,14 +15,18 @@
                 android:startX="0"
                 android:startY="0"
                 android:type="linear">
-                <item android:color="#0A192F" android:offset="0.0" />
-                <item android:color="#064E3B" android:offset="0.6" />
-                <item android:color="#022C22" android:offset="1.0" />
+                <item android:color="#071C15" android:offset="0.0" />
+                <item android:color="#0A5A45" android:offset="0.52" />
+                <item android:color="#062A22" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
-    <!-- Subtle luxury starburst pattern -->
+
     <path
-        android:fillColor="#15D4AF37"
-        android:pathData="M54,18 L58,40 L80,44 L60,56 L64,78 L54,64 L44,78 L48,56 L28,44 L50,40 Z" />
+        android:fillColor="#1AD4AF37"
+        android:pathData="M10,22 L20,62 L54,42 L36,82 L54,100 L82,72 L108,76 L92,52 L108,24 L72,28 L54,8 Z" />
+
+    <path
+        android:fillColor="#2EE5C07B"
+        android:pathData="M20,20 L30,38 L46,26 L38,48 L60,52 L40,62 L46,84 L28,70 L8,84 L16,62 L0,52 L22,44 Z" />
 </vector>

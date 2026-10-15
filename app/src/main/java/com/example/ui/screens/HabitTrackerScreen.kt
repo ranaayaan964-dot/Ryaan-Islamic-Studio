@@ -51,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,6 +62,12 @@ import com.example.ui.theme.EmeraldAccent
 import com.example.ui.theme.GoldAccent
 import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.GoldSecondary
+import com.example.data.model.PrayerType
+import com.example.data.repository.AladhanRepository
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 data class IslamicBadge(
     val id: String,
@@ -71,75 +78,83 @@ data class IslamicBadge(
     val progress: Float = 1.0f
 )
 
+private data class PrayerDaySummary(
+    val dayName: String,
+    val completedCount: Int,
+    val completedAll: Boolean,
+    val fajrCompleted: Boolean
+)
+
 @Composable
 fun HabitTrackerScreen() {
-    var streakCount by remember { mutableIntStateOf(14) }
-    var userXp by remember { mutableIntStateOf(1450) }
-    val level = remember(userXp) { (userXp / 300) + 1 }
-
-    // Prayer Completion States
-    val completedPrayers = remember {
-        mutableStateMapOf(
-            "Fajr" to true,
-            "Dhuhr" to true,
-            "Asr" to true,
-            "Maghrib" to false,
-            "Isha" to false
-        )
+    val context = LocalContext.current.applicationContext
+    val trackerPreferences = remember(context) {
+        context.getSharedPreferences("prayer_tracker_preferences", android.content.Context.MODE_PRIVATE)
     }
-
-    var isFastingDone by remember { mutableStateOf(true) }
-    var isCharityDone by remember { mutableStateOf(true) }
-    var quranPagesRead by remember { mutableIntStateOf(4) }
-
-    val badges = remember {
+    val todayKey = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
+    val prayerList = remember {
         listOf(
-            IslamicBadge(
-                id = "dawn_devotee",
-                title = "Dawn Devotee",
-                description = "Prayed Fajr on time 7 days consecutively",
-                icon = "🌅",
-                isUnlocked = true
-            ),
-            IslamicBadge(
-                id = "steadfast_mumin",
-                title = "Steadfast Mumin",
-                description = "Completed all 5 prayers for 10 straight days",
-                icon = "🛡️",
-                isUnlocked = true
-            ),
-            IslamicBadge(
-                id = "generous_heart",
-                title = "Generous Heart",
-                description = "Gave Sadaqah 5 times this week",
-                icon = "💖",
-                isUnlocked = true
-            ),
-            IslamicBadge(
-                id = "tahajjud_seeker",
-                title = "Tahajjud Seeker",
-                description = "Awoke 30 mins before Fajr for Night Prayer",
-                icon = "🌙",
-                isUnlocked = true
-            ),
-            IslamicBadge(
-                id = "quran_illuminator",
-                title = "Quran Illuminator",
-                description = "Recited 50 pages of the Noble Quran",
-                icon = "📖",
-                isUnlocked = false,
-                progress = 0.65f
-            ),
-            IslamicBadge(
-                id = "fasting_champion",
-                title = "Sawm Champion",
-                description = "Fasted Monday & Thursday Sunnah fasts",
-                icon = "✨",
-                isUnlocked = false,
-                progress = 0.80f
-            )
+            Triple("Fajr", "الفجر", PrayerType.FAJR),
+            Triple("Dhuhr", "الظهر", PrayerType.DHUHR),
+            Triple("Asr", "العصر", PrayerType.ASR),
+            Triple("Maghrib", "المغرب", PrayerType.MAGHRIB),
+            Triple("Isha", "العشاء", PrayerType.ISHA)
         )
     }
+    val todayCompletionsKey = "completed_$todayKey"
+    val completedPrayers = remember(todayKey) {
+        val saved = trackerPreferences.getStringSet(todayCompletionsKey, emptySet()).orEmpty()
+        mutableStateMapOf<String, Boolean>().apply {
+            prayerList.forEach { (name, _, _) -> put(name, name in saved) }
+        }
+    }
+    val prayerTimes = remember(todayKey) {
+        AladhanRepository.getSahiwalFallbackSchedule().second.associateBy { it.type }
+    }
+    val completedPrayerCount = prayerList.count { (name, _, _) -> completedPrayers[name] == true }
+    var historyRevision by remember(todayKey) { mutableIntStateOf(0) }
+    var userXp by remember(todayKey) { mutableIntStateOf(completedPrayerCount * 25) }
+    val level = remember(userXp) { (userXp / 300) + 1 }
+    var isFastingDone by remember { mutableStateOf(false) }
+    var isCharityDone by remember { mutableStateOf(false) }
+    var quranPagesRead by remember { mutableIntStateOf(0) }
+
+    val weekDays = remember(todayKey, historyRevision) {
+        (6 downTo 0).map { daysAgo ->
+            val day = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -daysAgo) }
+            val dateKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(day.time)
+            val completed = trackerPreferences.getStringSet("completed_$dateKey", emptySet()).orEmpty()
+            val validCompletions = completed.intersect(prayerList.map { it.first }.toSet())
+            PrayerDaySummary(
+                dayName = SimpleDateFormat("EEE", Locale.getDefault()).format(day.time),
+                completedCount = validCompletions.size,
+                completedAll = validCompletions.size == prayerList.size,
+                fajrCompleted = "Fajr" in validCompletions
+            )
+        }
+    }
+    val weeklyCompleted = weekDays.sumOf { it.completedCount }
+    val fajrDaysCompleted = weekDays.count { it.fajrCompleted }
+    val fullPrayerDays = weekDays.count { it.completedAll }
+
+    val badges = listOf(
+        IslamicBadge(
+            id = "dawn_devotee",
+            title = "Dawn Devotee",
+            description = "Logged Fajr on all seven days",
+            icon = "🌅",
+            isUnlocked = fajrDaysCompleted == 7,
+            progress = fajrDaysCompleted / 7f
+        ),
+        IslamicBadge(
+            id = "steadfast_mumin",
+            title = "Steadfast Mumin",
+            description = "Logged all five prayers on seven days",
+            icon = "🛡️",
+            isUnlocked = fullPrayerDays == 7,
+            progress = fullPrayerDays / 7f
+        )
+    )
 
     val infiniteTransition = rememberInfiniteTransition(label = "FlameGlow")
     val flamePulse by infiniteTransition.animateFloat(
@@ -154,7 +169,14 @@ fun HabitTrackerScreen() {
 
     fun togglePrayer(prayer: String) {
         val current = completedPrayers[prayer] ?: false
-        completedPrayers[prayer] = !current
+        val updated = !current
+        completedPrayers[prayer] = updated
+        val completedToday = prayerList
+            .filter { (name, _, _) -> completedPrayers[name] == true }
+            .map { it.first }
+            .toSet()
+        trackerPreferences.edit().putStringSet(todayCompletionsKey, completedToday).apply()
+        historyRevision++
         if (!current) {
             userXp += 25
         } else {
@@ -226,13 +248,13 @@ fun HabitTrackerScreen() {
 
                             Column {
                                 Text(
-                                    text = "$streakCount Days Streak!",
+                                    text = "$weeklyCompleted / 35 prayers this week",
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFFFED7AA)
                                 )
                                 Text(
-                                    text = "Your spiritual discipline is ablaze",
+                                    text = "$completedPrayerCount of 5 completed today",
                                     fontSize = 11.5.sp,
                                     color = Color(0xFF94A3B8)
                                 )
@@ -320,16 +342,9 @@ fun HabitTrackerScreen() {
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    val prayerList = listOf(
-                        Triple("Fajr", "الفجر", "04:35 AM"),
-                        Triple("Dhuhr", "الظهر", "12:15 PM"),
-                        Triple("Asr", "العصر", "03:45 PM"),
-                        Triple("Maghrib", "المغرب", "06:36 PM"),
-                        Triple("Isha", "العشاء", "07:55 PM")
-                    )
-
-                    prayerList.forEach { (name, arabic, time) ->
+                    prayerList.forEach { (name, arabic, prayerType) ->
                         val isDone = completedPrayers[name] == true
+                        val time = prayerTimes[prayerType]?.timeFormatted ?: ""
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -384,6 +399,69 @@ fun HabitTrackerScreen() {
                                 fontWeight = FontWeight.Bold,
                                 color = if (isDone) EmeraldAccent else Color(0xFF64748B)
                             )
+                        }
+                    }
+                }
+            }
+
+            Text(
+                text = "LAST SEVEN DAYS",
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = GoldSecondary,
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(bottom = 8.dp, start = 4.dp)
+            )
+
+            GlassCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Prayer completion", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        Text("$weeklyCompleted / 35", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = EmeraldAccent)
+                    }
+                    LinearProgressIndicator(
+                        progress = { (weeklyCompleted / 35f).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                        color = EmeraldAccent,
+                        trackColor = Color(0x2210B981)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        weekDays.forEach { day ->
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(if (day.completedAll) EmeraldAccent else Color(0x2210B981)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = day.completedCount.toString(),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (day.completedAll) Color(0xFF0F172A) else Color(0xFFCBD5E1)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(day.dayName, fontSize = 10.sp, color = Color(0xFF94A3B8))
+                            }
                         }
                     }
                 }

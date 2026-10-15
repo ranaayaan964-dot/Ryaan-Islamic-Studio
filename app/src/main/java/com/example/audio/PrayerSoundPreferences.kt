@@ -27,7 +27,7 @@ object PrayerSoundPreferences {
     fun getSoundItemForEvent(context: Context, event: SoundEvent): IslamicSoundItem {
         val soundId = getPrefs(context).getString(KEY_SOUND_ID_PREFIX + event.eventId, event.defaultSoundId)
             ?: event.defaultSoundId
-        return IslamicSoundCatalog.getSoundById(soundId)
+        return IslamicSoundCatalog.getSoundById(soundId, event.defaultSoundId)
     }
 
     fun setSoundForEvent(context: Context, event: SoundEvent, sound: IslamicSoundItem) {

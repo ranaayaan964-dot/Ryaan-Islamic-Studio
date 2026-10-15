@@ -74,7 +74,6 @@ object GeminiHifzClient {
 
     // Groq Plan B Configuration
     private const val GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
-    private const val GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
     private val okHttpClient by lazy {
         OkHttpClient.Builder()
@@ -91,8 +90,6 @@ object GeminiHifzClient {
     }
 
     private val groqWhisperAdapter by lazy { moshi.adapter(GroqWhisperResponse::class.java) }
-    private val groqChatReqAdapter by lazy { moshi.adapter(GroqChatRequest::class.java) }
-    private val groqChatResAdapter by lazy { moshi.adapter(GroqChatResponse::class.java) }
 
     suspend fun evaluateHifzRecitation(
         cacheAudioPath: String,
@@ -150,8 +147,8 @@ object GeminiHifzClient {
 
     private fun attemptGeminiEvaluation(audioFile: File, surahName: String): String? {
         return try {
-            val apiKey = GeminiApiClient.getResolvedGeminiKey()
-            if (apiKey.isBlank()) {
+            val apiKeys = DualAiScholarEngine.geminiApiKeyPool()
+            if (apiKeys.isEmpty()) {
                 Log.w(TAG, "GEMINI_API_KEY is empty in BuildConfig")
                 return null
             }
@@ -159,7 +156,7 @@ object GeminiHifzClient {
             val bytes = try { audioFile.readBytes() } catch (e: Exception) { return null }
             val base64Audio = Base64.encodeToString(bytes, Base64.NO_WRAP)
 
-            val prompt = "Listen to this Arabic recitation. Transcribe it exactly. Compare it to the text of $surahName. Point out missing words, incorrect Makhraj, and Tajweed mistakes. Format the response cleanly with bullet points and positive encouragement."
+            val prompt = "You are a highly qualified Islamic Scholar and certified translator. Your task is to translate the following Arabic text (from the Quran, Hadith, or Fiqh) verbatim into English and Urdu. DO NOT add any personal opinions, DO NOT summarize, and DO NOT hallucinate meanings. If you cannot perfectly translate a word, leave it in Arabic. Accuracy is a matter of strict religious compliance.\n\nListen to this Arabic recitation. Transcribe it exactly. Compare it to the text of $surahName. Point out missing words, incorrect Makhraj, and Tajweed mistakes. Format the response cleanly with bullet points and positive encouragement."
 
             val requestBodyObj = MultimodalGeminiRequest(
                 contents = listOf(
@@ -184,28 +181,31 @@ object GeminiHifzClient {
                 return null
             }
 
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$GEMINI_MODEL_NAME:generateContent?key=$apiKey"
-            val request = Request.Builder()
-                .url(url)
-                .post(json.toRequestBody("application/json".toMediaType()))
-                .build()
+            for (apiKey in apiKeys) {
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$GEMINI_MODEL_NAME:generateContent?key=$apiKey"
+                val request = Request.Builder()
+                    .url(url)
+                    .post(json.toRequestBody("application/json".toMediaType()))
+                    .build()
 
-            okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val errBody = try { response.body?.string().orEmpty() } catch (_: Exception) { "" }
-                    Log.w(TAG, "Gemini API non-successful code: ${response.code} $errBody")
-                    return null
+                val answer = okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Gemini Hifz returned HTTP ${response.code}; trying the next configured key")
+                        return@use null
+                    }
+                    val respBody = response.body?.string().orEmpty()
+                    if (respBody.isBlank()) return@use null
+                    try {
+                        moshi.adapter(MultimodalGeminiResponse::class.java).fromJson(respBody)
+                            ?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Gemini deserialization failed: ${e.message}")
+                        null
+                    }
                 }
-                val respBody = try { response.body?.string().orEmpty() } catch (_: Exception) { "" }
-                if (respBody.isBlank()) return null
-                val geminiResponse = try {
-                    moshi.adapter(MultimodalGeminiResponse::class.java).fromJson(respBody)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Gemini deserialization failed: ${e.message}")
-                    null
-                }
-                geminiResponse?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
+                if (!answer.isNullOrBlank()) return answer
             }
+            null
         } catch (oom: OutOfMemoryError) {
             throw oom
         } catch (e: Exception) {
@@ -219,7 +219,7 @@ object GeminiHifzClient {
      * 1. Groq Audio API (whisper-large-v3) transcribes m4a/wav audio to Arabic text
     * 2. Groq Chat API (openai/gpt-oss-120b) compares transcript with Surah and points out Tajweed mistakes
      */
-    private fun attemptGroqPlanBFallback(audioFile: File, surahName: String): String? {
+    private suspend fun attemptGroqPlanBFallback(audioFile: File, surahName: String): String? {
         // Step 1: Transcribe with Groq whisper-large-v3
         val transcript = transcribeWithGroqWhisper(audioFile)
         if (transcript.isNullOrBlank()) {
@@ -245,8 +245,8 @@ object GeminiHifzClient {
 
     private fun transcribeWithGroqWhisper(audioFile: File): String? {
         return try {
-            val groqApiKey = GroqHifzClient.getResolvedGroqKey()
-            if (groqApiKey.isBlank()) return null
+            val groqApiKeys = DualAiScholarEngine.groqApiKeyPool()
+            if (groqApiKeys.isEmpty()) return null
 
             val mediaType = if (audioFile.name.endsWith(".wav", ignoreCase = true)) {
                 "audio/wav".toMediaType()
@@ -254,100 +254,53 @@ object GeminiHifzClient {
                 "audio/m4a".toMediaType()
             }
 
-            val multipartBody = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart(
-                    "file",
-                    audioFile.name,
-                    audioFile.asRequestBody(mediaType)
-                )
-                .addFormDataPart("model", "whisper-large-v3")
-                .addFormDataPart("response_format", "json")
-                .build()
-
-            val request = Request.Builder()
-                .url(GROQ_AUDIO_URL)
-                .addHeader("Authorization", "Bearer $groqApiKey")
-                .post(multipartBody)
-                .build()
-
-            okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val err = try { response.body?.string().orEmpty() } catch (_: Exception) { "" }
-                    Log.e(TAG, "Groq Whisper API call failed (${response.code}): $err")
-                    return null
+            for (apiKey in groqApiKeys) {
+                val multipartBody = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("file", audioFile.name, audioFile.asRequestBody(mediaType))
+                    .addFormDataPart("model", "whisper-large-v3")
+                    .addFormDataPart("response_format", "json")
+                    .build()
+                val request = Request.Builder()
+                    .url(GROQ_AUDIO_URL)
+                    .header("Authorization", "Bearer $apiKey")
+                    .post(multipartBody)
+                    .build()
+                val transcript = okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Groq Whisper returned HTTP ${response.code}; trying the next configured key")
+                        return@use null
+                    }
+                    val respBody = response.body?.string().orEmpty()
+                    if (respBody.isBlank()) return@use null
+                    try {
+                        groqWhisperAdapter.fromJson(respBody)?.text?.trim()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Groq Whisper JSON parsing failed: ${e.message}")
+                        null
+                    }
                 }
-                val respBody = try { response.body?.string().orEmpty() } catch (_: Exception) { "" }
-                if (respBody.isBlank()) return null
-                val parsed = try {
-                    groqWhisperAdapter.fromJson(respBody)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Groq Whisper JSON parsing failed: ${e.message}")
-                    null
-                }
-                parsed?.text?.trim()
+                if (!transcript.isNullOrBlank()) return transcript
             }
+            null
         } catch (t: Exception) {
             Log.e(TAG, "transcribeWithGroqWhisper caught exception: ${t.message}")
             null
         }
     }
 
-    private fun evaluateWithGroqLlama(transcript: String, surahName: String): String? {
+    private suspend fun evaluateWithGroqLlama(transcript: String, surahName: String): String? {
         return try {
-            val groqApiKey = GroqHifzClient.getResolvedGroqKey()
-            if (groqApiKey.isBlank()) return null
-
-            val userPrompt = "Compare this recitation: $transcript with $surahName. Point out Tajweed mistakes."
-
-            val groqReq = GroqChatRequest(
-                model = "openai/gpt-oss-120b",
-                messages = listOf(
-                    GroqMessage(
-                        role = "system",
-                        content = "You are an expert Quran and Tajweed Scholar. Analyze the recitation transcription accurately. Point out missing words, pronunciation errors, and Tajweed mistakes (Makhraj, Ghunnah, Qalqalah, Madd). Format the response cleanly with clear bullet points and encouraging advice."
-                    ),
-                    GroqMessage(
-                        role = "user",
-                        content = userPrompt
-                    )
-                ),
-                temperature = 0.5f,
-                maxTokens = 2048
+            val prompt = "Compare the verified Arabic transcript of the student's recitation with Surah $surahName. Transcript: [$transcript]. Identify only word-level differences and avoid claiming audio-based pronunciation or Tajweed observations from text alone. Give concise, encouraging feedback."
+            val routed = DualAiScholarEngine.askScholarWithSource(
+                userQuery = prompt,
+                customSystemPrompt = "You are a careful Quran memorization text-comparison assistant. Do not invent Quranic text, references, pronunciation observations, or Tajweed errors. Clearly state when a conclusion cannot be drawn from the transcript."
             )
-
-            val jsonBody = try {
-                groqChatReqAdapter.toJson(groqReq)
-            } catch (e: Exception) {
-                Log.w(TAG, "Groq serialization failed: ${e.message}")
-                return null
-            }
-
-            val request = Request.Builder()
-                .url(GROQ_CHAT_URL)
-                .addHeader("Authorization", "Bearer $groqApiKey")
-                .addHeader("Content-Type", "application/json")
-                .post(jsonBody.toRequestBody("application/json".toMediaType()))
-                .build()
-
-            okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val err = try { response.body?.string().orEmpty() } catch (_: Exception) { "" }
-                    Log.e(TAG, "Groq Llama API call failed (${response.code}): $err")
-                    return null
-                }
-                val respBody = try { response.body?.string().orEmpty() } catch (_: Exception) { "" }
-                if (respBody.isBlank()) return null
-                val parsed = try {
-                    groqChatResAdapter.fromJson(respBody)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Groq Llama JSON parsing failed: ${e.message}")
-                    null
-                }
-                parsed?.choices?.firstOrNull()?.message?.content?.trim()
-            }
-        } catch (t: Exception) {
-            Log.e(TAG, "evaluateWithGroqLlama caught exception: ${t.message}")
+            routed.answer.takeIf { routed.source != "Provider failover unavailable" }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Hifz transcript comparison failed through provider router", e)
             null
         }
     }
