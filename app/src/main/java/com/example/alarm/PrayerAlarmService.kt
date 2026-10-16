@@ -584,10 +584,14 @@ class PrayerAlarmService : Service() {
                 setAudioAttributes(audioAttributes)
                 setDataSource(streamUrl)
             }
-            preparePlayerAsync(player, looping = true) {
-                it.start()
-                Log.d(TAG, "Remote dynamic stream started playing successfully")
-            }
+            preparePlayerAsync(
+                player,
+                looping = true,
+                onPrepared = { preparedPlayer ->
+                    preparedPlayer.start()
+                    Log.d(TAG, "Remote dynamic stream started playing successfully")
+                }
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Failed initializing remote streaming alternative: ${e.message}")
         }
