@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -30,11 +31,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Quiz
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SmartDisplay
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.WorkspacePremium
@@ -42,10 +45,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -92,6 +98,80 @@ data class KidsVideoEpisode(
     val correctIndex: Int
 )
 
+private data class KidsOfflineStory(
+    val narrative: String,
+    val moralSummary: String,
+    val quranReference: String
+)
+
+private val kidsOfflineStories = mapOf(
+    "1" to KidsOfflineStory(
+        "Allah created Adam and honored him with knowledge. Adam and his wife lived in the garden, where Allah gave them guidance. After they made a mistake, they remembered Allah and asked Him for forgiveness. Allah accepted their repentance and sent them to live on earth with guidance. Their story reminds us that Allah welcomes sincere repentance.",
+        "When we make a mistake, we should admit it, ask Allah for forgiveness, and try to do better.",
+        "Quran 2:30-39; 7:19-27"
+    ),
+    "2" to KidsOfflineStory(
+        "Prophet Nuh patiently called his people to worship Allah alone for many years. Only a small group believed. Allah told Nuh to build an Ark, and the believers and creatures boarded as the flood began. Nuh's son chose not to join them and was lost in the flood. The Ark came to rest by Allah's command, and the believers began again with hope.",
+        "Stay patient, keep doing what is right, and trust Allah even when the path is difficult.",
+        "Quran 11:25-49; Surah Nuh"
+    ),
+    "3" to KidsOfflineStory(
+        "Prophet Ibrahim looked at the sun, moon, and stars and recognized that they were created, so they could not be his Lord. He called his people to worship Allah alone and stood firm when they opposed him. Allah protected him and guided him through great tests. Ibrahim and his son Ismail later raised the foundations of the Kaaba and prayed that Allah would accept their work. Their example teaches faith, courage, and humility.",
+        "Worship Allah alone, be brave in doing what is right, and trust Him.",
+        "Quran 6:74-79; 2:125-129; 37:100-111"
+    ),
+    "4" to KidsOfflineStory(
+        "When Yusuf was young, he told his father about a remarkable dream. His brothers became jealous and left him in a well, but a passing caravan found him. In Egypt, Yusuf stayed truthful through difficult tests and was imprisoned unjustly. Allah later enabled him to explain the king's dream and help prepare for years of famine. When his brothers came seeking food, Yusuf forgave them and reunited with his family.",
+        "Patience, honesty, and forgiveness are beautiful qualities, especially when we have the chance to be kind.",
+        "Surah Yusuf (Quran 12)"
+    ),
+    "5" to KidsOfflineStory(
+        "Prophet Ayyub faced a severe hardship and did not turn away from Allah. He called upon Allah with a humble prayer, asking for mercy. Allah answered him, lifted his suffering, and restored blessings to him. The Quran praises Ayyub as patient and a wonderful servant of Allah. The Quran does not give every detail of his illness, so we keep this story focused on what it tells us.",
+        "We can ask Allah for help during hardship and show patience without losing hope.",
+        "Quran 21:83-84; 38:41-44"
+    ),
+    "6" to KidsOfflineStory(
+        "Prophet Yunus left his people before Allah's permission and boarded a ship. After lots were drawn, he went into the sea and was swallowed by a great fish. In the darkness, Yunus prayed: 'There is no god except You; glory be to You. I was among the wrongdoers.' Allah answered his prayer and brought him safely to shore. Yunus returned to his people, who then believed.",
+        "Remember Allah, seek forgiveness, and never give up hope in His mercy.",
+        "Quran 21:87-88; 37:139-148"
+    ),
+    "7" to KidsOfflineStory(
+        "As a baby, Musa was protected by Allah and grew up in Pharaoh's household. Allah later chose Musa as a messenger and sent him to call Pharaoh to stop oppressing the Children of Israel. Musa and his people left Egypt, but Pharaoh's army followed. When they reached the sea, Allah commanded Musa to strike it with his staff. The sea parted, the believers crossed safely, and Pharaoh's army was overcome.",
+        "When we feel afraid, we can trust Allah and take the right steps with courage.",
+        "Quran 26:52-68; 20:77-79"
+    ),
+    "8" to KidsOfflineStory(
+        "The Children of Israel asked for a king to lead them. Allah chose Talut, and a small group remained with him when they faced Jalut's large army. The believers prayed for patience and firmness. By Allah's permission, they won, and Dawud defeated Jalut. Allah later gave Dawud wisdom and prophethood. The Quran's account emphasizes faith and steadfastness, not the size of an army.",
+        "Courage and trust in Allah matter more than numbers or appearances.",
+        "Quran 2:246-251"
+    ),
+    "9" to KidsOfflineStory(
+        "Allah gave Prophet Sulaiman wisdom and a remarkable kingdom. One day, he heard an ant warn the other ants to move aside, and he smiled, thanking Allah for His blessings. Sulaiman also listened carefully when the hoopoe brought news of the Queen of Sheba. He invited her people to worship Allah. When she saw the signs Allah had given him, she recognized the truth and submitted to Allah.",
+        "Use blessings with gratitude, humility, and care for all of Allah's creation.",
+        "Quran 27:15-44"
+    ),
+    "10" to KidsOfflineStory(
+        "The Quran mentions Uzair by name but does not provide a full biography of him. In a separate passage, the Quran describes a traveler who saw a ruined town and wondered how Allah would bring it back to life. Allah caused the man to die for a hundred years, then restored him and showed him signs of resurrection. The passage does not name that traveler as Uzair, so we should not state that identification as certain.",
+        "Speak carefully about what is known, and remember that Allah has power over life and resurrection.",
+        "Quran 9:30; 2:259"
+    ),
+    "11" to KidsOfflineStory(
+        "Prophet Ibrahim prayed for a righteous child, and Allah gave him the glad news of Ismail. When Ismail was old enough to help, Ibrahim told him about a great test. Both trusted Allah, and Allah provided a sacrifice in Ismail's place. The Quran also tells how Ibrahim and Ismail raised the Kaaba's foundations together. Islamic tradition connects Ismail and his mother Hajar with Makkah and the well of Zamzam; the Quranic verses cited here do not describe the well itself.",
+        "Trust Allah, care for family, and remember that Allah is merciful.",
+        "Quran 37:100-111; 2:125-129. Zamzam is described in Islamic tradition."
+    ),
+    "12" to KidsOfflineStory(
+        "Allah chose Maryam and gave her the glad news that she would have a son, Isa, by Allah's command. Maryam returned to her people carrying the baby, and Isa spoke while still in the cradle to defend his mother's honor. As a messenger to the Children of Israel, Isa was given signs, including healing the sick, all by Allah's permission. He called people to worship Allah, his Lord and theirs.",
+        "Allah can do all things; honor Maryam and Prophet Isa as the Quran teaches.",
+        "Quran 3:45-51; Surah Maryam (19:16-36)"
+    ),
+    "13" to KidsOfflineStory(
+        "Prophet Muhammad grew up in Makkah and became known for honesty and trustworthiness. Allah chose him as the final messenger and revealed the Quran to him. He patiently called people to worship Allah alone, even when they opposed him. After the migration to Madinah, he built a community centered on faith, justice, and mutual care. The Quran describes him as a mercy and a beautiful example for believers.",
+        "Follow the Prophet's example: be truthful, merciful, patient, and helpful.",
+        "Quran 21:107; 33:21; 68:4"
+    )
+)
+
 /**
  * MODULE 8: ISLAMIC KIDS CINEMA & LEARNING ACADEMY (VERSION 1.1 YOUTUBE UPGRADE)
  * Features real authentic YouTube streaming via Android Intent (preventing video player crashes),
@@ -117,7 +197,7 @@ fun KidsLearningScreen(
                 category = "Stories of the Prophets",
                 duration = "10:00",
                 ageRating = "Ages 4-12",
-                youtubeUrl = "https://www.youtube.com/watch?v=xxnZuAHCAjY",
+                youtubeUrl = "https://www.youtube.com/watch?v=uvhAUB2VxMg",
                 colorAccent = RadiantEmerald,
                 quizQuestion = "Who was the first human and prophet?",
                 quizOptions = listOf("Prophet Adam (AS)", "Prophet Nuh (AS)", "Prophet Musa (AS)", "Prophet Ibrahim (AS)"),
@@ -130,7 +210,7 @@ fun KidsLearningScreen(
                 category = "Stories of the Prophets",
                 duration = "12:15",
                 ageRating = "Ages 4-12",
-                youtubeUrl = "https://www.youtube.com/watch?v=d2D6WuKlymM",
+                youtubeUrl = "https://www.youtube.com/watch?v=NgBkdtrrKLg",
                 colorAccent = DeepRoyalEmerald,
                 quizQuestion = "What pairs were saved by Allah on the Ark?",
                 quizOptions = listOf("A male and female pair of every creature", "Only birds", "Only animals", "No one"),
@@ -138,119 +218,119 @@ fun KidsLearningScreen(
             ),
             KidsVideoEpisode(
                 id = "3",
-                title = "Prophet Hud (AS)",
-                description = "A gentle lesson in obedience, faith, and the consequences of turning away from Allah's guidance.",
-                category = "Stories of the Prophets",
-                duration = "10:00",
-                ageRating = "Ages 5-12",
-                youtubeUrl = "https://www.youtube.com/watch?v=KZjf53aqCEs",
-                colorAccent = GoldenAmber,
-                quizQuestion = "Which nation was called by Prophet Hud (AS)?",
-                quizOptions = listOf("Aad", "Thamud", "Madyan", "Quraysh"),
-                correctIndex = 0
-            ),
-            KidsVideoEpisode(
-                id = "4",
-                title = "Prophet Salih (AS)",
-                description = "The story of Prophet Salih (AS), the people of Thamud, and the signs Allah gave them.",
-                category = "Stories of the Prophets",
-                duration = "10:00",
-                ageRating = "Ages 5-12",
-                youtubeUrl = "https://www.youtube.com/watch?v=_RUNc_lZBVA",
-                colorAccent = RadiantEmerald,
-                quizQuestion = "Which people did Prophet Salih (AS) call to worship Allah?",
-                quizOptions = listOf("Thamud", "Aad", "Madyan", "Quraysh"),
-                correctIndex = 0
-            ),
-            KidsVideoEpisode(
-                id = "5",
                 title = "Prophet Ibrahim (AS)",
                 description = "The story of the Kaaba, the call to monotheism, and the patience of Prophet Ibrahim (AS).",
                 category = "Stories of the Prophets",
-                duration = "13:45",
-                ageRating = "Ages 5-14",
-                youtubeUrl = "https://www.youtube.com/watch?v=lZu173pTldI",
+                duration = "10:00",
+                ageRating = "Ages 5-12",
+                youtubeUrl = "https://www.youtube.com/watch?v=-5HQ9iH0zQY",
                 colorAccent = GoldenAmber,
                 quizQuestion = "Who helped Prophet Ibrahim (AS) raise the foundations of the Kaaba?",
                 quizOptions = listOf("Prophet Ismail (AS)", "Prophet Musa (AS)", "Prophet Yunus (AS)", "Prophet Isa (AS)"),
                 correctIndex = 0
             ),
             KidsVideoEpisode(
-                id = "6",
+                id = "4",
                 title = "Prophet Yusuf (AS)",
                 description = "The story of Prophet Yusuf (AS), patience through trials, and the beauty of forgiveness.",
                 category = "Stories of the Prophets",
-                duration = "12:00",
-                ageRating = "Ages 5-14",
-                youtubeUrl = "https://www.youtube.com/watch?v=gadnINKEibU",
-                colorAccent = GoldenAmber,
+                duration = "10:00",
+                ageRating = "Ages 5-12",
+                youtubeUrl = "https://www.youtube.com/watch?v=19SbvfIKu_w",
+                colorAccent = RadiantEmerald,
                 quizQuestion = "Which quality did Prophet Yusuf (AS) show when he forgave his brothers?",
                 quizOptions = listOf("Forgiveness", "Pride", "Impatience", "Jealousy"),
                 correctIndex = 0
             ),
             KidsVideoEpisode(
-                id = "7",
+                id = "5",
                 title = "Prophet Ayyub (AS)",
                 description = "Learn how Prophet Ayyub (AS) remained patient and trusted Allah during hardship.",
                 category = "Stories of the Prophets",
-                duration = "10:00",
-                ageRating = "Ages 4-12",
-                youtubeUrl = "https://www.youtube.com/watch?v=SvcSVsgy09M",
-                colorAccent = RadiantEmerald,
+                duration = "13:45",
+                ageRating = "Ages 5-14",
+                youtubeUrl = "https://www.youtube.com/watch?v=9ZIYQhfSe6s",
+                colorAccent = GoldenAmber,
                 quizQuestion = "Which quality did Prophet Ayyub (AS) show during hardship?",
-                quizOptions = listOf("Patience", "Envy", "Anger", "Pride"),
+                quizOptions = listOf("Patience", "Envy", "Impatience", "Pride"),
                 correctIndex = 0
             ),
             KidsVideoEpisode(
-                id = "8",
-                title = "Prophet Yunus (AS)",
+                id = "6",
+                title = "Prophet Yunus (AS) & The Whale",
                 description = "A calming story about prayer, reliance on Allah, and the mercy that follows hardship.",
                 category = "Stories of the Prophets",
-                duration = "11:00",
-                ageRating = "Ages 4-12",
-                youtubeUrl = "https://www.youtube.com/watch?v=ICbA_GMZQoY",
-                colorAccent = Color(0xFF0284C7),
+                duration = "12:00",
+                ageRating = "Ages 5-14",
+                youtubeUrl = "https://www.youtube.com/watch?v=4hKbaQ17rFs",
+                colorAccent = GoldenAmber,
                 quizQuestion = "What supplication did Prophet Yunus (AS) make in the darkness?",
                 quizOptions = listOf("La ilaha illa Anta Subhanaka inni kuntu minaz-zalimin", "Alhamdulillah", "Astaghfirullah", "Bismillah"),
                 correctIndex = 0
             ),
             KidsVideoEpisode(
-                id = "9",
+                id = "7",
                 title = "Prophet Musa (AS)",
                 description = "The miracle of the sea, the courage of faith, and the strength of trust in Allah.",
                 category = "Stories of the Prophets",
-                duration = "15:00",
-                ageRating = "Ages 6-14",
-                youtubeUrl = "https://www.youtube.com/watch?v=WQi07cDzr6c",
-                colorAccent = Color(0xFFD97706),
+                duration = "10:00",
+                ageRating = "Ages 4-12",
+                youtubeUrl = "https://www.youtube.com/watch?v=s3dvuMlsuy8",
+                colorAccent = RadiantEmerald,
                 quizQuestion = "What miracle was Prophet Musa (AS) granted at the sea?",
                 quizOptions = listOf("The sea parted", "A mountain moved", "It rained gold", "A river appeared"),
                 correctIndex = 0
             ),
             KidsVideoEpisode(
+                id = "8",
+                title = "Prophet Dawud (AS) vs Jalut",
+                description = "The Quranic account of Talut's group, Jalut, and Dawud's victory by Allah's permission.",
+                category = "Stories of the Prophets",
+                duration = "11:00",
+                ageRating = "Ages 4-12",
+                youtubeUrl = "https://www.youtube.com/watch?v=D22G5RFef1M",
+                colorAccent = Color(0xFF0284C7),
+                quizQuestion = "Who defeated Jalut by Allah's permission?",
+                quizOptions = listOf("Dawud", "Talut", "Musa", "Nuh"),
+                correctIndex = 0
+            ),
+            KidsVideoEpisode(
+                id = "9",
+                title = "Prophet Sulaiman (AS)",
+                description = "The story of wisdom, compassion, and the blessings Allah gave Prophet Sulaiman (AS).",
+                category = "Stories of the Prophets",
+                duration = "15:00",
+                ageRating = "Ages 6-14",
+                youtubeUrl = "https://www.youtube.com/watch?v=JbfEZMdgZ_A",
+                colorAccent = Color(0xFFD97706),
+                quizQuestion = "Who granted Prophet Sulaiman (AS) wisdom and blessings?",
+                quizOptions = listOf("Allah", "A king", "A traveler", "A merchant"),
+                correctIndex = 0
+            ),
+            KidsVideoEpisode(
                 id = "10",
-                title = "Prophet Dawud (AS)",
-                description = "Discover the courage, wisdom, and justice of Prophet Dawud (AS) in service to Allah.",
+                title = "Prophet Uzair (AS)",
+                description = "A careful look at what the Quran says about Uzair and an unnamed man brought back after a century.",
                 category = "Stories of the Prophets",
                 duration = "10:00",
                 ageRating = "Ages 5-14",
-                youtubeUrl = "https://www.youtube.com/watch?v=IcSZX4QClN0",
+                youtubeUrl = "https://www.youtube.com/watch?v=m-78Vf2TByk",
                 colorAccent = Color(0xFF0284C7),
-                quizQuestion = "What quality is Prophet Dawud (AS) remembered for as a leader?",
-                quizOptions = listOf("Justice", "Greed", "Carelessness", "Arrogance"),
+                quizQuestion = "Does the Quran identify the unnamed man in 2:259 as Uzair?",
+                quizOptions = listOf("No, the passage does not name him", "Yes, explicitly", "It names him as Musa", "It does not describe him"),
                 correctIndex = 0
             ),
             KidsVideoEpisode(
                 id = "11",
-                title = "Prophet Sulaiman (AS)",
-                description = "The story of wisdom, compassion, and the blessings Allah gave Prophet Sulaiman (AS).",
+                title = "Prophet Ismail (AS) & Zamzam",
+                description = "The account of Ismail's trust in Allah and the Islamic tradition of Hajar and Zamzam.",
                 category = "Stories of the Prophets",
                 duration = "11:00",
                 ageRating = "Ages 5-14",
-                youtubeUrl = "https://www.youtube.com/watch?v=U2MKoxtvCII",
+                youtubeUrl = "https://www.youtube.com/watch?v=hkSkWt48U5Y",
                 colorAccent = GoldenAmber,
-                quizQuestion = "Who granted Prophet Sulaiman (AS) wisdom and blessings?",
-                quizOptions = listOf("Allah", "A king", "A traveler", "A merchant"),
+                quizQuestion = "Who helped Prophet Ibrahim (AS) raise the Kaaba's foundations?",
+                quizOptions = listOf("Prophet Ismail (AS)", "Prophet Dawud (AS)", "Prophet Isa (AS)", "Prophet Nuh (AS)"),
                 correctIndex = 0
             ),
             KidsVideoEpisode(
@@ -260,7 +340,7 @@ fun KidsLearningScreen(
                 category = "Stories of the Prophets",
                 duration = "10:00",
                 ageRating = "Ages 4-12",
-                youtubeUrl = "https://www.youtube.com/watch?v=cR3TvX9S1tA",
+                youtubeUrl = "https://www.youtube.com/watch?v=l7s8R9ugb98",
                 colorAccent = DeepRoyalEmerald,
                 quizQuestion = "Who was the mother of Prophet Isa (AS)?",
                 quizOptions = listOf("Maryam (AS)", "Asiya (AS)", "Hajar (AS)", "Sarah (AS)"),
@@ -273,7 +353,7 @@ fun KidsLearningScreen(
                 category = "Stories of the Prophets",
                 duration = "14:20",
                 ageRating = "Ages 4-14",
-                youtubeUrl = "https://www.youtube.com/watch?v=WEEORXFj-lo",
+                youtubeUrl = "https://www.youtube.com/watch?v=yKk9-8VoJKM",
                 colorAccent = DeepRoyalEmerald,
                 quizQuestion = "What was the Prophet Muhammad (SAW) known as before prophethood?",
                 quizOptions = listOf("Al-Amin (The Trustworthy)", "The Merchant", "The Traveler", "The King"),
@@ -284,9 +364,23 @@ fun KidsLearningScreen(
 
     var selectedEpisode by remember { mutableStateOf(episodes[0]) }
     var isQuizOpen by remember { mutableStateOf(false) }
+    var readerEpisode by remember { mutableStateOf<KidsVideoEpisode?>(null) }
     var selectedQuizAnswer by remember { mutableStateOf<Int?>(null) }
     var hasAnsweredCorrectly by remember { mutableStateOf(false) }
     var earnedStars by remember { mutableIntStateOf(15) }
+    val ttsReady = remember { mutableStateOf(false) }
+    val textToSpeech = remember(context) {
+        TextToSpeech(context) { status ->
+            ttsReady.value = status == TextToSpeech.SUCCESS
+        }
+    }
+
+    DisposableEffect(textToSpeech) {
+        onDispose {
+            textToSpeech.stop()
+            textToSpeech.shutdown()
+        }
+    }
 
     fun resetQuizState() {
         selectedQuizAnswer = null
@@ -298,19 +392,37 @@ fun KidsLearningScreen(
     }
 
     fun openYouTubeVideo(url: String) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, "Opening YouTube video...", Toast.LENGTH_SHORT).show()
+        val videoId = Uri.parse(url).getQueryParameter("v")
+        if (!videoId.isNullOrBlank()) {
             try {
-                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                context.startActivity(webIntent)
-            } catch (ex: Exception) {
-                Toast.makeText(context, "Could not open browser for video.", Toast.LENGTH_SHORT).show()
+                val youtubeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$videoId")).apply {
+                    setPackage("com.google.android.youtube")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(youtubeIntent)
+                return
+            } catch (_: Exception) {
+                // Fall back to the browser if YouTube is unavailable or the video cannot open there.
             }
+        }
+        openExternalUrl(url)
+    }
+
+    fun searchMoreEpisodes(episode: KidsVideoEpisode) {
+        val searchUri = Uri.parse("https://www.youtube.com/results")
+            .buildUpon()
+            .appendQueryParameter("search_query", "${episode.title} Islamic Cartoon Urdu")
+            .build()
+        openExternalUrl(searchUri.toString())
+    }
+
+    fun openExternalUrl(url: String) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (_: Exception) {
+            Toast.makeText(context, "No app is available to open this link.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -587,6 +699,28 @@ fun KidsLearningScreen(
                                 )
                             }
                         }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TextButton(
+                                onClick = { readerEpisode = selectedEpisode },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Read Story", maxLines = 1)
+                            }
+                            TextButton(
+                                onClick = { searchMoreEpisodes(selectedEpisode) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Search, contentDescription = null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Search More Episodes", maxLines = 1, fontSize = 11.sp)
+                            }
+                        }
                     }
                 }
             }
@@ -626,13 +760,19 @@ fun KidsLearningScreen(
                         isSelected = ep.id == selectedEpisode.id,
                         onSelect = {
                             selectedEpisode = ep
-                    resetQuizState()
-                },
-                onOpen = {
-                    selectedEpisode = ep
-                    resetQuizState()
-                    openYouTubeVideo(ep.youtubeUrl)
-                }
+                            resetQuizState()
+                        },
+                        onRead = {
+                            selectedEpisode = ep
+                            resetQuizState()
+                            readerEpisode = ep
+                        },
+                        onSearch = { searchMoreEpisodes(ep) },
+                        onOpen = {
+                            selectedEpisode = ep
+                            resetQuizState()
+                            openYouTubeVideo(ep.youtubeUrl)
+                        }
                     )
                 }
             }
@@ -672,13 +812,19 @@ fun KidsLearningScreen(
                         isSelected = ep.id == selectedEpisode.id,
                         onSelect = {
                             selectedEpisode = ep
-                    resetQuizState()
-                },
-                onOpen = {
-                    selectedEpisode = ep
-                    resetQuizState()
-                    openYouTubeVideo(ep.youtubeUrl)
-                }
+                            resetQuizState()
+                        },
+                        onRead = {
+                            selectedEpisode = ep
+                            resetQuizState()
+                            readerEpisode = ep
+                        },
+                        onSearch = { searchMoreEpisodes(ep) },
+                        onOpen = {
+                            selectedEpisode = ep
+                            resetQuizState()
+                            openYouTubeVideo(ep.youtubeUrl)
+                        }
                     )
                 }
             }
@@ -839,6 +985,57 @@ fun KidsLearningScreen(
                 }
             }
         }
+
+        readerEpisode?.let { episode ->
+            val story = kidsOfflineStories.getValue(episode.id)
+            AlertDialog(
+                onDismissRequest = { readerEpisode = null },
+                title = {
+                    Text(
+                        text = episode.title,
+                        color = DeepRoyalEmerald,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 420.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text("STORY", color = PlatinumGold, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(6.dp))
+                        Text(story.narrative, color = CharcoalPrimary, fontSize = 14.sp, lineHeight = 21.sp)
+                        Spacer(Modifier.height(16.dp))
+                        Text("LESSON", color = PlatinumGold, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(6.dp))
+                        Text(story.moralSummary, color = CharcoalPrimary, fontSize = 14.sp, lineHeight = 21.sp)
+                        Spacer(Modifier.height(14.dp))
+                        Text(story.quranReference, color = SlateMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { readerEpisode = null }) {
+                        Text("Close")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        enabled = ttsReady.value,
+                        onClick = {
+                            textToSpeech.speak(
+                                "${episode.title}. ${story.narrative} Lesson: ${story.moralSummary}",
+                                TextToSpeech.QUEUE_FLUSH,
+                                null,
+                                "kids_story_${episode.id}"
+                            )
+                        }
+                    ) {
+                        Text("Listen")
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -847,7 +1044,9 @@ fun KidsYouTubeEpisodeCard(
     episode: KidsVideoEpisode,
     isSelected: Boolean,
     onSelect: () -> Unit,
-    onOpen: () -> Unit
+    onOpen: () -> Unit,
+    onRead: () -> Unit,
+    onSearch: () -> Unit
 ) {
     NeumorphicCard(
         modifier = Modifier
@@ -951,6 +1150,21 @@ fun KidsYouTubeEpisodeCard(
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFCC0000)
                     )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    TextButton(onClick = onRead) {
+                        Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Read story offline", modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text("Read", fontSize = 10.sp)
+                    }
+                    TextButton(onClick = onSearch) {
+                        Icon(Icons.Default.Search, contentDescription = "Search More Episodes", modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text("Search", fontSize = 10.sp)
+                    }
                 }
             }
         }
