@@ -94,6 +94,7 @@ data class SurahPracticeItem(
 @Composable
 fun HifzCheckerScreen() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     val surahs = remember {
         listOf(
@@ -249,21 +250,33 @@ fun HifzCheckerScreen() {
 
                 recognizer.setRecognitionListener(object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {}
-                    override fun onBeginningOfSpeech() { speechAmplitude = 0.85f }
-                    override fun onRmsChanged(rmsdB: Float) { speechAmplitude = (rmsdB / 10f).coerceIn(0.2f, 1f) }
+                    override fun onBeginningOfSpeech() {
+                        scope.launch(Dispatchers.Main.immediate) { speechAmplitude = 0.85f }
+                    }
+                    override fun onRmsChanged(rmsdB: Float) {
+                        scope.launch(Dispatchers.Main.immediate) { speechAmplitude = (rmsdB / 10f).coerceIn(0.2f, 1f) }
+                    }
                     override fun onBufferReceived(buffer: ByteArray?) {}
-                    override fun onEndOfSpeech() { isRecording = false }
+                    override fun onEndOfSpeech() {
+                        scope.launch(Dispatchers.Main.immediate) { isRecording = false }
+                    }
                     override fun onError(error: Int) {
-                        isRecording = false
-                        recognizedText = ""
-                        executeEvaluation("")
+                        scope.launch(Dispatchers.Main.immediate) {
+                            isRecording = false
+                            recognizedText = ""
+                            executeEvaluation("")
+                        }
+                        try { recognizer.destroy() } catch (_: Exception) {}
                     }
                     override fun onResults(results: Bundle?) {
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         val spoken = matches?.firstOrNull() ?: ""
-                        recognizedText = spoken
-                        isRecording = false
-                        executeEvaluation(spoken)
+                        scope.launch(Dispatchers.Main.immediate) {
+                            recognizedText = spoken
+                            isRecording = false
+                            executeEvaluation(spoken)
+                        }
+                        try { recognizer.destroy() } catch (_: Exception) {}
                     }
                     override fun onPartialResults(partialResults: Bundle?) {}
                     override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -271,14 +284,18 @@ fun HifzCheckerScreen() {
                 recognizer.startListening(intent)
             } else {
                 // Speech recognizer unavailable on device
+                scope.launch(Dispatchers.Main.immediate) {
+                    isRecording = false
+                    recognizedText = ""
+                    executeEvaluation("")
+                }
+            }
+        } catch (_: Exception) {
+            scope.launch(Dispatchers.Main.immediate) {
                 isRecording = false
                 recognizedText = ""
                 executeEvaluation("")
             }
-        } catch (_: Exception) {
-            isRecording = false
-            recognizedText = ""
-            executeEvaluation("")
         }
     }
 

@@ -346,28 +346,44 @@ class IslamicVoiceEngine(context: Context) {
     fun speak(text: String, utteranceId: String = "ai_voice_${System.currentTimeMillis()}") {
         if (!isInitialized || tts == null) return
 
-        // Clean markdown stars/bullets for clean audio reading
-        val cleanSpeech = text
-            .replace(Regex("[#*`_~]"), "")
-            .replace(Regex("📖\\s*"), "")
-            .replace(Regex("\\n+"), ". ")
-            .trim()
+        try {
+            // Clean markdown stars/bullets for clean audio reading
+            val cleanSpeech = text
+                .replace(Regex("[#*`_~]"), "")
+                .replace(Regex("📖\\s*"), "")
+                .replace(Regex("\\n+"), ". ")
+                .trim()
 
-        stop()
-        tts?.speak(cleanSpeech, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            if (cleanSpeech.isBlank()) return
+
+            stop()
+            tts?.speak(cleanSpeech, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        } catch (_: Exception) {
+            isSpeaking = false
+            onSpeakingStateChanged?.invoke(false)
+        }
     }
 
     fun stop() {
-        if (isSpeaking) {
-            tts?.stop()
+        try {
+            if (isSpeaking) {
+                tts?.stop()
+                isSpeaking = false
+                onSpeakingStateChanged?.invoke(false)
+            }
+        } catch (_: Exception) {
             isSpeaking = false
             onSpeakingStateChanged?.invoke(false)
         }
     }
 
     fun shutdown() {
-        stop()
-        tts?.shutdown()
+        try {
+            stop()
+        } catch (_: Exception) {}
+        try {
+            tts?.shutdown()
+        } catch (_: Exception) {}
         tts = null
         isInitialized = false
     }

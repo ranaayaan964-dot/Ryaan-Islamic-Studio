@@ -323,7 +323,8 @@ fun MainAppContainer(
             .fillMaxSize()
             .statusBarsPadding(),
         bottomBar = {
-            if (activeEnterpriseScreen == EnterpriseFeatureScreen.NONE) {
+            val isAiTaskScreen = selectedTab == 2 || selectedTab == 3
+            if (activeEnterpriseScreen == EnterpriseFeatureScreen.NONE && !isAiTaskScreen) {
                 val isAudioPlaying by QuranAudioController.isPlaying.collectAsStateWithLifecycle()
                 val audioDurationMs by QuranAudioController.currentDurationMs.collectAsStateWithLifecycle()
                 val audioPosMs by QuranAudioController.currentPositionMs.collectAsStateWithLifecycle()

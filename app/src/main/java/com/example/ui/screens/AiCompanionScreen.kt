@@ -179,17 +179,31 @@ fun AiCompanionScreen() {
         }
     }
 
+    fun stopVoiceInput() {
+        try {
+            speechRecognizer?.stopListening()
+        } catch (_: Exception) {}
+        try {
+            speechRecognizer?.cancel()
+        } catch (_: Exception) {}
+        try {
+            speechRecognizer?.destroy()
+        } catch (_: Exception) {}
+        speechRecognizer = null
+        isListeningToSpeech = false
+    }
+
     DisposableEffect(Unit) {
         voiceEngine.onSpeakingStateChanged = { speaking ->
-            isVoiceSpeaking = speaking
-            if (!speaking) activeSpeakingMessageId = null
+            scope.launch(Dispatchers.Main.immediate) {
+                isVoiceSpeaking = speaking
+                if (!speaking) activeSpeakingMessageId = null
+            }
         }
 
         onDispose {
             voiceEngine.shutdown()
-            try {
-                speechRecognizer?.destroy()
-            } catch (_: Exception) {}
+            stopVoiceInput()
         }
     }
 
@@ -207,9 +221,15 @@ fun AiCompanionScreen() {
         if (isGranted) {
             startSpeechListening(
                 context = context,
-                onListeningStateChange = { isListeningToSpeech = it },
+                onListeningStateChange = { value ->
+                    scope.launch(Dispatchers.Main.immediate) {
+                        isListeningToSpeech = value
+                    }
+                },
                 onTextRecognized = { recognizedText ->
-                    inputText = recognizedText
+                    scope.launch(Dispatchers.Main.immediate) {
+                        inputText = recognizedText
+                    }
                 },
                 setRecognizer = { speechRecognizer = it }
             )
@@ -268,7 +288,11 @@ fun AiCompanionScreen() {
                     isFatwaRequest = activeRole == GeminiChatbotRole.COMPLEX_JURIST
                 )
                 messages.add(ChatMessage(scholarResult.answer, false))
-                voiceEngine.speak(scholarResult.answer)
+                try {
+                    voiceEngine.speak(scholarResult.answer)
+                } catch (_: Exception) {
+                    // Never allow TTS callback or engine errors to crash the chat flow.
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -535,8 +559,7 @@ fun AiCompanionScreen() {
                     IconButton(
                         onClick = {
                             if (isListeningToSpeech) {
-                                try { speechRecognizer?.stopListening() } catch (_: Exception) {}
-                                isListeningToSpeech = false
+                                stopVoiceInput()
                             } else {
                                 micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             }
@@ -966,9 +989,18 @@ private fun startSpeechListening(
             }
             override fun onError(error: Int) {
                 onListeningStateChange(false)
+                try {
+                    recognizer.cancel()
+                } catch (_: Exception) {}
+                try {
+                    recognizer.destroy()
+                } catch (_: Exception) {}
             }
             override fun onResults(results: Bundle?) {
                 onListeningStateChange(false)
+                try {
+                    recognizer.destroy()
+                } catch (_: Exception) {}
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (!matches.isNullOrEmpty()) {
                     onTextRecognized(matches[0])
