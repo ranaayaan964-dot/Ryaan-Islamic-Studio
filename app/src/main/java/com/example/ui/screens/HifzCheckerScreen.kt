@@ -7,9 +7,12 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.content.pm.PackageManager
 import com.example.util.QuranRecitationEvaluator
 import com.example.util.RecitationEvaluationResult
 import com.example.util.WordEvaluationStatus
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -58,6 +61,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +71,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -95,6 +100,12 @@ data class SurahPracticeItem(
 fun HifzCheckerScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var hasMicPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED
+        )
+    }
 
     val surahs = remember {
         listOf(
@@ -303,6 +314,17 @@ fun HifzCheckerScreen() {
         isRecording = false
         val spoken = if (recognizedText.contains("Listening")) "" else recognizedText
         executeEvaluation(spoken)
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasMicPermission = granted
+        if (granted) {
+            startRecitationAnalysis()
+        } else {
+            Toast.makeText(context, "Microphone permission is required for recitation check", Toast.LENGTH_SHORT).show()
+        }
     }
 
     Box(
@@ -587,7 +609,13 @@ fun HifzCheckerScreen() {
                                 else Brush.linearGradient(listOf(GoldPrimary, GoldAccent))
                             )
                             .clickable {
-                                if (isRecording) stopRecitation() else startRecitationAnalysis()
+                                if (isRecording) {
+                                    stopRecitation()
+                                } else if (hasMicPermission) {
+                                    startRecitationAnalysis()
+                                } else {
+                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
                             }
                             .testTag("recitation_mic_button"),
                         contentAlignment = Alignment.Center

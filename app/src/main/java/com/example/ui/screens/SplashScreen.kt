@@ -99,31 +99,26 @@ fun SplashScreen(
     LaunchedEffect(Unit) {
         val startTime = System.currentTimeMillis()
 
-        // Asynchronously activate creator signature at 1.2 seconds
-        withContext(Dispatchers.Default) {
-            delay(1200)
-            signatureVisible = true
-            signatureFloatGlow.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(1400, easing = FastOutSlowInEasing)
-            )
-        }
+        delay(1200)
+        signatureVisible = true
+        signatureFloatGlow.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(1400, easing = FastOutSlowInEasing)
+        )
     }
 
     LaunchedEffect(Unit) {
         val startTime = System.currentTimeMillis()
 
-        withContext(Dispatchers.IO) {
+            val loggedIn = withContext(Dispatchers.IO) {
             // 1. Initialize Room Database & Quran Engine
-            preloadStatus = "Warming up Room Database & Quranic Corpus..."
             val appDb = AppDatabase.getInstance(context)
-            val sessionUser = appDb.userDao().getActiveSession()
+                appDb.userDao().getActiveSession()
 
             val quranDb = QuranDatabase.getDatabase(context)
             quranDb.quranDao().getSurahCount()
 
             // 2. Warm up SharedPreferences / DataStore session & EncryptedSharedPreferences
-            preloadStatus = "Verifying Authentication & Saved Credentials..."
             val sessionManager = com.example.security.SessionManager.getInstance(context)
             val settingsRepo = SettingsRepository.getInstance(context)
             val themeRepo = ThemeSettingsRepository.getInstance(context)
@@ -132,9 +127,9 @@ fun SplashScreen(
             val hasSecureSession = sessionManager.isLoggedIn()
             val hasDataStoreSession = settingsRepo.isLoggedIn()
             val hasDbSession = UserSessionManager.hasActiveSession(context)
-            isUserLoggedIn = hasSecureSession || hasDataStoreSession || hasDbSession
+                val hasExistingSession = hasSecureSession || hasDataStoreSession || hasDbSession
 
-            if (isUserLoggedIn) {
+                if (hasExistingSession) {
                 if (!hasSecureSession && hasDbSession) {
                     sessionManager.setLoggedIn(true)
                 }
@@ -144,12 +139,13 @@ fun SplashScreen(
             }
 
             // 3. Fetch or cache prayer times for today
-            preloadStatus = "Synchronizing Daily Prayer Times & Qibla Vector..."
             val defaultLoc = LocationRepository.getDefaultLocation()
             PrayerCalculator.calculatePrayerTimes(defaultLoc.latitude, defaultLoc.longitude)
 
-            preloadStatus = "Ryaan Islamic Studio Ready"
+                hasExistingSession
         }
+        preloadStatus = "Ryaan Islamic Studio Ready"
+        isUserLoggedIn = loggedIn
 
         // Enforce exact 5500ms duration (within 5000ms - 6000ms requirement)
         val elapsed = System.currentTimeMillis() - startTime

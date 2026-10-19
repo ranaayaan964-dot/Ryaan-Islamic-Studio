@@ -288,11 +288,6 @@ fun AiCompanionScreen() {
                     isFatwaRequest = activeRole == GeminiChatbotRole.COMPLEX_JURIST
                 )
                 messages.add(ChatMessage(scholarResult.answer, false))
-                try {
-                    voiceEngine.speak(scholarResult.answer)
-                } catch (_: Exception) {
-                    // Never allow TTS callback or engine errors to crash the chat flow.
-                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

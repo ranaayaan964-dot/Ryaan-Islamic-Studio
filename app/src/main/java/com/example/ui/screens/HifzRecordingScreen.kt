@@ -175,37 +175,56 @@ fun HifzRecordingScreen(
 
     DisposableEffect(context) {
         var ttsInstance: TextToSpeech? = null
-        ttsInstance = TextToSpeech(context) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                ttsInstance?.language = Locale.ENGLISH
-                isTtsReady = true
+        try {
+            ttsInstance = TextToSpeech(context.applicationContext) { status ->
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    if (status == TextToSpeech.SUCCESS) {
+                        try {
+                            ttsInstance?.language = Locale.ENGLISH
+                            isTtsReady = true
+                        } catch (_: Exception) {
+                            isTtsReady = false
+                        }
+                    }
+                }
             }
+            ttsInstance?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {
+                    coroutineScope.launch(Dispatchers.Main.immediate) { isSpeaking = true }
+                }
+                override fun onDone(utteranceId: String?) {
+                    coroutineScope.launch(Dispatchers.Main.immediate) { isSpeaking = false }
+                }
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) {
+                    coroutineScope.launch(Dispatchers.Main.immediate) { isSpeaking = false }
+                }
+            })
+        } catch (_: Exception) {
+            ttsInstance = null
+            isTtsReady = false
         }
-        ttsInstance.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {
-                isSpeaking = true
-            }
-            override fun onDone(utteranceId: String?) {
-                isSpeaking = false
-            }
-            @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) {
-                isSpeaking = false
-            }
-        })
         textToSpeech = ttsInstance
 
         onDispose {
-            ttsInstance.stop()
-            ttsInstance.shutdown()
+            try {
+                ttsInstance?.stop()
+            } catch (_: Exception) {}
+            try {
+                ttsInstance?.shutdown()
+            } catch (_: Exception) {}
         }
     }
 
     // Function to trigger spoken feedback
     fun speakFeedback(text: String) {
         if (isTtsReady && textToSpeech != null) {
-            textToSpeech?.stop()
-            textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "HifzFeedbackUtterance")
+            try {
+                textToSpeech?.stop()
+                textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "HifzFeedbackUtterance")
+            } catch (_: Exception) {
+                isSpeaking = false
+            }
         }
     }
 
