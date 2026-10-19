@@ -1,13 +1,13 @@
-﻿{
+{
   "project_info": {
-    "project_number": "123456789012",
+    "project_number": "392374346970",
     "project_id": "ryaan-islamic-studio",
-    "storage_bucket": "ryaan-islamic-studio.appspot.com"
+    "storage_bucket": "ryaan-islamic-studio.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:123456789012:android:abcdef1234567890",
+        "mobilesdk_app_id": "1:392374346970:android:6e491e087757f767c731e3",
         "android_client_info": {
           "package_name": "com.aistudio.prayertimes.rzxk"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDummyKeyForBuildPass123456789"
+          "current_key": "AIzaSyD3Cr99B-q1xeuep28aiRvGoFxwCjZCR1Q"
         }
       ],
       "services": {
