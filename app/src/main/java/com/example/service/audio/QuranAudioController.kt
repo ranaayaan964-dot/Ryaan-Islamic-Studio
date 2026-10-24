@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
+import android.util.Log
 import com.example.data.quran.model.AyahEntity
 import com.example.data.quran.repository.HifzRepeatMode
 import kotlinx.coroutines.CoroutineScope
@@ -26,6 +27,7 @@ object QuranAudioController {
 
     private var audioService: QuranAudioService? = null
     private var isBound = false
+    private var isBinding = false
     private val controllerScope = CoroutineScope(Dispatchers.Main + Job())
 
     private val _serviceConnectedFlow = MutableStateFlow(false)
@@ -71,6 +73,7 @@ object QuranAudioController {
     val sleepTimerSeconds: StateFlow<Int?> = _sleepTimerSeconds.asStateFlow()
 
     private var syncJob: Job? = null
+    private var pendingAction: (() -> Unit)? = null
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -78,6 +81,7 @@ object QuranAudioController {
             val svc = binder?.getService()
             audioService = svc
             isBound = true
+            isBinding = false
             _serviceConnectedFlow.value = true
 
             if (svc != null) {
@@ -98,6 +102,9 @@ object QuranAudioController {
                     launch { svc.sleepTimerSecondsFlow.collect { _sleepTimerSeconds.value = it } }
                 }
             }
+
+            pendingAction?.invoke()
+            pendingAction = null
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -105,6 +112,7 @@ object QuranAudioController {
             syncJob = null
             audioService = null
             isBound = false
+            isBinding = false
             _serviceConnectedFlow.value = false
             _isPlaying.value = false
             _isBuffering.value = false
@@ -112,29 +120,46 @@ object QuranAudioController {
     }
 
     fun bindService(context: Context) {
-        if (!isBound) {
-            val intent = Intent(context, QuranAudioService::class.java)
+        if (isBound || isBinding) return
+        isBinding = true
+        val intent = Intent(context, QuranAudioService::class.java)
+        try {
             try {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)
                 } else {
                     context.startService(intent)
                 }
-            } catch (_: Exception) {
+            } catch (startError: Exception) {
+                Log.w("QuranAudioController", "Foreground audio service start failed; trying regular start", startError)
                 context.startService(intent)
             }
-            context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+            if (!context.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+                isBinding = false
+                Log.e("QuranAudioController", "Could not bind to Quran audio service")
+            }
+        } catch (e: Exception) {
+            isBinding = false
+            Log.e("QuranAudioController", "Could not start or bind Quran audio service", e)
         }
     }
 
     fun playSurah(context: Context, surahId: Int, surahName: String, audioUrl: String = "", startPositionMs: Long = 0L) {
+        if (audioService != null && isBound) {
+            audioService?.playSurah(surahId, surahName, audioUrl, startPositionMs)
+            return
+        }
+        pendingAction = { audioService?.playSurah(surahId, surahName, audioUrl, startPositionMs) }
         bindService(context)
-        audioService?.playSurah(surahId, surahName, audioUrl, startPositionMs)
     }
 
     fun playSurahWithQari(context: Context, surahId: Int, surahName: String, qariId: QariId, startPositionMs: Long = 0L) {
+        if (audioService != null && isBound) {
+            audioService?.playSurahWithQari(surahId, surahName, qariId, startPositionMs)
+            return
+        }
+        pendingAction = { audioService?.playSurahWithQari(surahId, surahName, qariId, startPositionMs) }
         bindService(context)
-        audioService?.playSurahWithQari(surahId, surahName, qariId, startPositionMs)
     }
 
     fun playAyahLoop(
@@ -145,8 +170,12 @@ object QuranAudioController {
         ayah: AyahEntity,
         repeatMode: HifzRepeatMode
     ) {
+        if (audioService != null && isBound) {
+            audioService?.playAyahLoop(surahId, surahName, qariId, ayah, repeatMode)
+            return
+        }
+        pendingAction = { audioService?.playAyahLoop(surahId, surahName, qariId, ayah, repeatMode) }
         bindService(context)
-        audioService?.playAyahLoop(surahId, surahName, qariId, ayah, repeatMode)
     }
 
     fun setPlaybackSpeed(speed: Float) {
@@ -162,8 +191,12 @@ object QuranAudioController {
     }
 
     fun togglePlayPause(context: Context) {
+        if (audioService != null && isBound) {
+            audioService?.togglePlayPause()
+            return
+        }
+        pendingAction = { audioService?.togglePlayPause() }
         bindService(context)
-        audioService?.togglePlayPause()
     }
 
     fun pauseAudio() {
@@ -171,8 +204,12 @@ object QuranAudioController {
     }
 
     fun resumeAudio(context: Context) {
+        if (audioService != null && isBound) {
+            audioService?.resumeAudio()
+            return
+        }
+        pendingAction = { audioService?.resumeAudio() }
         bindService(context)
-        audioService?.resumeAudio()
     }
 
     fun seekTo(positionMs: Long) {
@@ -188,13 +225,21 @@ object QuranAudioController {
     }
 
     fun playNextSurah(context: Context) {
+        if (audioService != null && isBound) {
+            audioService?.playNextSurah()
+            return
+        }
+        pendingAction = { audioService?.playNextSurah() }
         bindService(context)
-        audioService?.playNextSurah()
     }
 
     fun playPreviousSurah(context: Context) {
+        if (audioService != null && isBound) {
+            audioService?.playPreviousSurah()
+            return
+        }
+        pendingAction = { audioService?.playPreviousSurah() }
         bindService(context)
-        audioService?.playPreviousSurah()
     }
 
     fun stopAudio() {
@@ -209,7 +254,9 @@ object QuranAudioController {
             syncJob?.cancel()
             syncJob = null
             isBound = false
+            isBinding = false
             audioService = null
+            pendingAction = null
             _serviceConnectedFlow.value = false
         }
     }

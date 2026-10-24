@@ -91,20 +91,23 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val glassTheme = LocalGlassTheme.current
-    val sessionManager = remember { SessionManager.getInstance(context) }
-
     var cachedUsername by remember { mutableStateOf("") }
     var isRememberMe by remember { mutableStateOf(true) }
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        cachedUsername = sessionManager.getCachedUsername().ifBlank { "ryaan" }
-        isRememberMe = sessionManager.isRememberMe()
+        val (username, rememberMe) = withContext(Dispatchers.IO) {
+            val sessionManager = SessionManager.getInstance(context)
+            sessionManager.getCachedUsername().ifBlank { "ryaan" } to sessionManager.isRememberMe()
+        }
+        cachedUsername = username
+        isRememberMe = rememberMe
     }
 
     val handleLogoutClick: () -> Unit = {
         scope.launch {
             withContext(Dispatchers.IO) {
+                val sessionManager = SessionManager.getInstance(context)
                 // 1. EncryptedSharedPreferences: is_logged_in = false, keep cached_username
                 sessionManager.logout()
 

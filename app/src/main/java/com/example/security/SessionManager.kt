@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.security.MessageDigest
 
 /**
  * ENTERPRISE-GRADE SECURE CREDENTIAL CACHING & SESSION MANAGER
@@ -70,6 +71,11 @@ class SessionManager private constructor(context: Context) {
         }
     }
 
+    private fun hashPassword(password: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(password.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString(separator = "") { "%02x".format(it) }
+    }
+
     /**
      * Stores user credentials securely upon successful login.
      */
@@ -77,7 +83,7 @@ class SessionManager private constructor(context: Context) {
         sharedPreferences.edit().apply {
             putString(KEY_CACHED_USERNAME, username)
             if (rememberMe) {
-                putString(KEY_CACHED_PASSWORD, password)
+                putString(KEY_CACHED_PASSWORD, hashPassword(password))
                 putBoolean(KEY_REMEMBER_ME, true)
             } else {
                 remove(KEY_CACHED_PASSWORD)

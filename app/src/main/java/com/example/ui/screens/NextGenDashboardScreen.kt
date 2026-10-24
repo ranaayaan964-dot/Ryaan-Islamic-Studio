@@ -5,12 +5,6 @@ import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -91,7 +85,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -133,7 +126,9 @@ import com.example.ui.theme.LocalGlassTheme
 import com.example.data.repository.SettingsRepository
 import com.example.util.AppUpdateManager
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -176,7 +171,12 @@ fun NextGenDashboardScreen(
     val glassColors = LocalGlassTheme.current
 
     // Live continuous ticking countdown engine state
-    val countdownState by PrayerCountdownEngine.countdownState.collectAsStateWithLifecycle()
+    var isSimulatedMidnight by remember {
+        mutableStateOf(PrayerCountdownEngine.isSimulatedMidnightActive())
+    }
+    var isSimulatedGracePeriod by remember {
+        mutableStateOf(PrayerCountdownEngine.isSimulatedGracePeriodActive())
+    }
 
     // Alarm active states
     val isAlarmRinging by PrayerAlarmService.isAlarmRinging.collectAsStateWithLifecycle()
@@ -191,11 +191,14 @@ fun NextGenDashboardScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                val hasDnd = AutoSilentManager.hasNotificationPolicyAccess(context)
-                if (autoSilentState.isEnabled && !hasDnd) {
-                    AutoSilentManager.toggleEnabled(false, context)
+                scope.launch(Dispatchers.IO) {
+                    val hasDnd = AutoSilentManager.hasNotificationPolicyAccess(context)
+                    if (autoSilentState.isEnabled && !hasDnd) {
+                        AutoSilentManager.toggleEnabled(false, context)
+                    }
                 }
             }
+
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
@@ -223,10 +226,22 @@ fun NextGenDashboardScreen(
                 PrayerCountdownEngine.updatePrayers(items, fetchedSchedule)
 
                 // Schedule system alarms
-                PrayerAlarmScheduler.scheduleAllActivePrayers(context, items)
+                withContext(Dispatchers.IO) {
+                    PrayerAlarmScheduler.scheduleAllActivePrayers(context, items)
+                }
 
-                // Evaluate auto-silent condition
-                AutoSilentManager.evaluateSilentCondition(context, items)
+                // Evaluate auto-silent condition using the latest cached location instead of hardcoded coordinates
+                withContext(Dispatchers.IO) {
+                    val location = try {
+                        LocationRepository.getCachedLocation(context)
+                    } catch (e: Exception) {
+                        android.util.Log.w("NextGenDashboard", "Could not read cached location after prayer refresh", e)
+                        null
+                    }
+                    val lat = location?.latitude ?: Double.NaN
+                    val lng = location?.longitude ?: Double.NaN
+                    AutoSilentManager.evaluateSilentCondition(context, items, lat, lng)
+                }
             }
             isLoading = false
         }
@@ -236,37 +251,43 @@ fun NextGenDashboardScreen(
         loadSahiwalTimings(selectedProvider)
     }
 
-    // Synchronize daily prayer schedule list badges & auto silent on every engine tick
-    LaunchedEffect(countdownState.tickCounter) {
-        val targetType = countdownState.nextPrayer?.type
-        val isAllPassedToday = countdownState.isTomorrow
-        val now = System.currentTimeMillis()
-        for (i in prayerItems.indices) {
-            val item = prayerItems[i]
-            val passed = if (isAllPassedToday) {
-                true
-            } else {
-                item.timeMillis <= now
+    // Update small prayer badges each second, but query location and system DND only once per minute.
+    LaunchedEffect(prayerItems.size) {
+        var lastAutoSilentEvaluationMillis = 0L
+        while (true) {
+            val state = PrayerCountdownEngine.countdownState.value
+            val targetType = state.nextPrayer?.type
+            val now = System.currentTimeMillis()
+            for (i in prayerItems.indices) {
+                val item = prayerItems[i]
+                val passed = if (state.isTomorrow) true else item.timeMillis <= now
+                val next = item.type == targetType
+                if (item.isPassed != passed || item.isNext != next) {
+                    prayerItems[i] = item.copy(isPassed = passed, isNext = next)
+                }
             }
-            val next = (item.type == targetType)
-            if (item.isPassed != passed || item.isNext != next) {
-                prayerItems[i] = item.copy(isPassed = passed, isNext = next)
-            }
-        }
-        AutoSilentManager.evaluateSilentCondition(context, prayerItems)
-    }
 
-    // Glowing animations
-    val infiniteTransition = rememberInfiniteTransition(label = "DashboardPulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.96f,
-        targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "Pulse"
-    )
+            if (now - lastAutoSilentEvaluationMillis >= 60_000L) {
+                lastAutoSilentEvaluationMillis = now
+                val prayers = prayerItems.toList()
+                withContext(Dispatchers.IO) {
+                    val location = try {
+                        LocationRepository.getCachedLocation(context)
+                    } catch (e: Exception) {
+                        android.util.Log.w("NextGenDashboard", "Could not read cached location for Auto-Silent", e)
+                        null
+                    }
+                    AutoSilentManager.evaluateSilentCondition(
+                        context,
+                        prayers,
+                        location?.latitude ?: Double.NaN,
+                        location?.longitude ?: Double.NaN
+                    )
+                }
+            }
+            delay(1000L)
+        }
+    }
 
     val backgroundGradient = remember(glassColors) {
         Brush.verticalGradient(
@@ -628,15 +649,16 @@ fun NextGenDashboardScreen(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
                             .background(
-                                if (countdownState.isSimulatedMidnight) Color(0xFF1E3A8A) else Color(0x18E5C07B)
+                                if (isSimulatedMidnight) Color(0xFF1E3A8A) else Color(0x18E5C07B)
                             )
                             .border(
                                 1.dp,
-                                if (countdownState.isSimulatedMidnight) Color(0xFF60A5FA) else Color(0x33E5C07B),
+                                if (isSimulatedMidnight) Color(0xFF60A5FA) else Color(0x33E5C07B),
                                 RoundedCornerShape(10.dp)
                             )
                             .clickable {
-                                PrayerCountdownEngine.setSimulatedMidnight(!countdownState.isSimulatedMidnight)
+                                isSimulatedMidnight = !isSimulatedMidnight
+                                PrayerCountdownEngine.setSimulatedMidnight(isSimulatedMidnight)
                             }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -646,22 +668,22 @@ fun NextGenDashboardScreen(
                             Icon(
                                 imageVector = Icons.Default.Bedtime,
                                 contentDescription = "Midnight Test",
-                                tint = if (countdownState.isSimulatedMidnight) Color(0xFF93C5FD) else GoldPrimary,
+                                tint = if (isSimulatedMidnight) Color(0xFF93C5FD) else GoldPrimary,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (countdownState.isSimulatedMidnight)
+                                text = if (isSimulatedMidnight)
                                     "🌙 11:57 PM Midnight ACTIVE (Fajr +1 Day)"
                                 else
                                     "🌙 Test 11:57 PM Midnight Rollover Edge Case",
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (countdownState.isSimulatedMidnight) Color(0xFFBFDBFE) else GoldAccent
+                                color = if (isSimulatedMidnight) Color(0xFFBFDBFE) else GoldAccent
                             )
                         }
                         Text(
-                            text = if (countdownState.isSimulatedMidnight) "Reset Device Time" else "Simulate 11:57 PM",
+                            text = if (isSimulatedMidnight) "Reset Device Time" else "Simulate 11:57 PM",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -676,15 +698,16 @@ fun NextGenDashboardScreen(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
                             .background(
-                                if (countdownState.isSimulatedGracePeriod) Color(0xFF064E3B) else Color(0x18E5C07B)
+                                if (isSimulatedGracePeriod) Color(0xFF064E3B) else Color(0x18E5C07B)
                             )
                             .border(
                                 1.dp,
-                                if (countdownState.isSimulatedGracePeriod) Color(0xFF10B981) else Color(0x33E5C07B),
+                                if (isSimulatedGracePeriod) Color(0xFF10B981) else Color(0x33E5C07B),
                                 RoundedCornerShape(10.dp)
                             )
                             .clickable {
-                                PrayerCountdownEngine.setSimulatedGracePeriod(!countdownState.isSimulatedGracePeriod)
+                                isSimulatedGracePeriod = !isSimulatedGracePeriod
+                                PrayerCountdownEngine.setSimulatedGracePeriod(isSimulatedGracePeriod)
                             }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -694,22 +717,22 @@ fun NextGenDashboardScreen(
                             Icon(
                                 imageVector = Icons.Default.NotificationsActive,
                                 contentDescription = "Grace Period Test",
-                                tint = if (countdownState.isSimulatedGracePeriod) Color(0xFF6EE7B7) else GoldPrimary,
+                                tint = if (isSimulatedGracePeriod) Color(0xFF6EE7B7) else GoldPrimary,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (countdownState.isSimulatedGracePeriod)
+                                text = if (isSimulatedGracePeriod)
                                     "🕌 45-Min Grace ACTIVE (12:12 PM)"
                                 else
                                     "🕌 Test 45-Min Grace Period (12:12 PM)",
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (countdownState.isSimulatedGracePeriod) Color(0xFFA7F3D0) else GoldAccent
+                                color = if (isSimulatedGracePeriod) Color(0xFFA7F3D0) else GoldAccent
                             )
                         }
                         Text(
-                            text = if (countdownState.isSimulatedGracePeriod) "Reset Real Time" else "Simulate 12:12 PM",
+                            text = if (isSimulatedGracePeriod) "Reset Real Time" else "Simulate 12:12 PM",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -728,7 +751,7 @@ fun NextGenDashboardScreen(
                             .clickable {
                                 PrayerAlarmScheduler.triggerTestAlarmNow(
                                     context,
-                                    countdownState.targetPrayerName
+                                    PrayerCountdownEngine.countdownState.value.targetPrayerName
                                 )
                             }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1275,6 +1298,7 @@ fun NextGenDashboardScreen(
                 onOpenSoundHub = onNavigateToSoundHub
             )
 
+            CountdownStateContent { countdownState ->
             // 3D Glassmorphic Next Prayer Hero Card
             val isProgress = countdownState.isPrayerInProgress
             Box(
@@ -1401,7 +1425,6 @@ fun NextGenDashboardScreen(
                         // Digital Countdown Display
                         Box(
                             modifier = Modifier
-                                .scale(pulseScale)
                                 .clip(RoundedCornerShape(18.dp))
                                 .background(
                                     if (isProgress) {
@@ -1482,6 +1505,7 @@ fun NextGenDashboardScreen(
                 }
             }
         }
+            }
 
             // Pure 3D AR Qibla (Live Camera & 3D Yellow Ground Lines)
             GlassCard(
@@ -2086,4 +2110,12 @@ fun NextGenDashboardScreen(
             )
         }
     }
+}
+
+@Composable
+private fun CountdownStateContent(
+    content: @Composable (com.example.service.CountdownState) -> Unit
+) {
+    val countdownState by PrayerCountdownEngine.countdownState.collectAsStateWithLifecycle()
+    content(countdownState)
 }

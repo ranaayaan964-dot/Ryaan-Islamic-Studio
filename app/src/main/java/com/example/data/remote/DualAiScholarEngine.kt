@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
 
 @JsonClass(generateAdapter = true)
 data class GroqChatRequest(
-    val model: String = "openai/gpt-oss-120b",
+    val model: String = "llama-3.3-70b-versatile",
     val messages: List<GroqMessage>,
     val temperature: Float = 0.6f,
     @Json(name = "max_tokens") val maxTokens: Int = 2048
@@ -88,7 +88,7 @@ object DualAiScholarEngine {
     private val groqModelCursor = AtomicInteger()
     private val keylessModelCursor = AtomicInteger()
 
-    private val geminiModels = listOf("gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b")
+    private val geminiModels = listOf("gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite")
     private val groqModels = listOf("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it")
     private val keylessModels = listOf("openai", "mistral", "llama")
 

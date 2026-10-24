@@ -2,12 +2,6 @@ package com.example.ui.screens
 
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -51,7 +45,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -62,7 +56,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -93,7 +86,10 @@ import com.example.ui.theme.LightBorderEmerald
 import com.example.ui.theme.LightEmeraldBackground
 import com.example.ui.theme.LocalThemeIsDark
 import com.example.util.PrayerCalculator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -107,6 +103,7 @@ fun DashboardScreen(
     onToggleTheme: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var showCityDialog by remember { mutableStateOf(false) }
 
     // Alarm toggles map
@@ -152,7 +149,9 @@ fun DashboardScreen(
 
     // Schedule active alarms initially
     LaunchedEffect(prayerTimes) {
-        PrayerAlarmScheduler.scheduleAllActivePrayers(context, prayerTimes)
+        withContext(Dispatchers.IO) {
+            PrayerAlarmScheduler.scheduleAllActivePrayers(context, prayerTimes)
+        }
     }
 
     val isDark = LocalThemeIsDark.current
@@ -256,13 +255,17 @@ fun DashboardScreen(
                     onToggleAlarm = { enabled ->
                         alarmSettings[prayer.type] = enabled
                         val updated = prayer.copy(isAlarmEnabled = enabled)
-                        if (enabled) {
-                            if (!PrayerAlarmScheduler.canScheduleExactAlarms(context)) {
-                                PrayerAlarmScheduler.requestExactAlarmPermission(context)
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                if (enabled) {
+                                    if (!PrayerAlarmScheduler.canScheduleExactAlarms(context)) {
+                                        PrayerAlarmScheduler.requestExactAlarmPermission(context)
+                                    }
+                                    PrayerAlarmScheduler.schedulePrayerAlarm(context, updated)
+                                } else {
+                                    PrayerAlarmScheduler.cancelPrayerAlarm(context, updated)
+                                }
                             }
-                            PrayerAlarmScheduler.schedulePrayerAlarm(context, updated)
-                        } else {
-                            PrayerAlarmScheduler.cancelPrayerAlarm(context, updated)
                         }
                     }
                 )
@@ -399,22 +402,11 @@ fun NextPrayerHeroCard(
     onToggleAdhanTest: () -> Unit
 ) {
     val isDark = LocalThemeIsDark.current
-    val infiniteTransition = rememberInfiniteTransition(label = "HeroGlow")
-    val glowScale by infiniteTransition.animateFloat(
-        initialValue = 0.98f,
-        targetValue = 1.02f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "GlowScale"
-    )
 
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
-            .scale(glowScale),
+            .padding(horizontal = 20.dp, vertical = 6.dp),
         shape = RoundedCornerShape(28.dp),
         borderWidth = 1.5.dp
     ) {

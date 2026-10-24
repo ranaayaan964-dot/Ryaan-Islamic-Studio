@@ -80,8 +80,8 @@ object AutoSilentManager {
     fun evaluateSilentCondition(
         context: Context,
         prayers: List<PrayerTimeItem>,
-        userLat: Double = 30.6699, // default near Central Mosque
-        userLng: Double = 73.1071
+        userLat: Double = Double.NaN,
+        userLng: Double = Double.NaN
     ) {
         if (!_silentState.value.isEnabled) return
 
@@ -101,7 +101,6 @@ object AutoSilentManager {
         var activePrayerName = ""
         var remainingMins = 0
 
-        // 1. Check if now is within [prayer.timeMillis, prayer.timeMillis + 20 mins]
         for (prayer in prayers) {
             val prayerStart = prayer.timeMillis
             val prayerEnd = prayerStart + JAMAAT_SILENT_DURATION_MILLIS
@@ -114,18 +113,19 @@ object AutoSilentManager {
             }
         }
 
-        // 2. Check Mosque Geofence proximity (simulated or real distance)
-        val distanceToMosque = calculateDistanceMeters(
-            userLat, userLng,
-            CENTRAL_MOSQUE_LAT, CENTRAL_MOSQUE_LNG
-        )
-        val isInsideMosque = distanceToMosque <= MOSQUE_GEOFENCE_RADIUS_METERS
+        val hasValidGps = userLat.isFinite() && userLng.isFinite()
+        val distanceToMosque = if (hasValidGps) {
+            calculateDistanceMeters(userLat, userLng, CENTRAL_MOSQUE_LAT, CENTRAL_MOSQUE_LNG)
+        } else {
+            Double.POSITIVE_INFINITY
+        }
+        val isInsideMosque = hasValidGps && distanceToMosque <= MOSQUE_GEOFENCE_RADIUS_METERS
 
         val shouldBeSilent = prayerSilentActive || isInsideMosque
         val reason = when {
             prayerSilentActive -> "$activePrayerName Jamaat in progress ($remainingMins mins left)"
             isInsideMosque -> "Inside Mosque Geofence (${distanceToMosque.toInt()}m)"
-            else -> "Standby (Auto-activates during Namaz / Mosque entry)"
+            else -> "Standby (Auto-activates during Namaz / valid mosque location)"
         }
 
         if (shouldBeSilent && !_silentState.value.isCurrentlySilent) {

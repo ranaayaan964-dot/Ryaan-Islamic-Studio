@@ -1,23 +1,19 @@
 package com.example.ui.components
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -25,9 +21,6 @@ import com.example.ui.theme.DeepRoyalEmerald
 import com.example.ui.theme.PearlBackground
 import com.example.ui.theme.PlatinumGold
 import com.example.ui.theme.PureWhite
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.sin
 
 /**
  * Enterprise Soft Neumorphism Card with 8.dp elevation and dual-shadow aesthetics
@@ -77,72 +70,46 @@ fun IslamicWatermarkBackground(
             .fillMaxSize()
             .background(backgroundColor)
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val step = 120.dp.toPx()
-            val starRadius = 24.dp.toPx()
-            val effectiveColor = watermarkColor.copy(alpha = opacity)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithCache {
+                    val step = 120.dp.toPx()
+                    val starRadius = 24.dp.toPx()
+                    val effectiveColor = watermarkColor.copy(alpha = opacity)
+                    val patternPath = Path()
 
-            val width = size.width
-            val height = size.height
+                    var x = 0f
+                    while (x < size.width + step) {
+                        var y = 0f
+                        while (y < size.height + step) {
+                            for (i in 0 until 16) {
+                                val radius = if (i % 2 == 0) starRadius else starRadius * 0.45f
+                                val angle = i * Math.PI / 8.0
+                                val px = x + (radius * kotlin.math.cos(angle)).toFloat()
+                                val py = y + (radius * kotlin.math.sin(angle)).toFloat()
+                                if (i == 0) patternPath.moveTo(px, py) else patternPath.lineTo(px, py)
+                            }
+                            patternPath.close()
+                            patternPath.moveTo(x, y - starRadius)
+                            patternPath.lineTo(x + step, y - starRadius)
+                            patternPath.moveTo(x - starRadius, y)
+                            patternPath.lineTo(x - starRadius, y + step)
+                            y += step
+                        }
+                        x += step
+                    }
 
-            var x = 0f
-            while (x < width + step) {
-                var y = 0f
-                while (y < height + step) {
-                    drawIslamicEightPointStar(
-                        center = Offset(x, y),
-                        radius = starRadius,
-                        color = effectiveColor
-                    )
-                    // Faint connecting lattice lines
-                    drawLine(
-                        color = effectiveColor,
-                        start = Offset(x, y - starRadius),
-                        end = Offset(x + step, y - starRadius),
-                        strokeWidth = 1f
-                    )
-                    drawLine(
-                        color = effectiveColor,
-                        start = Offset(x - starRadius, y),
-                        end = Offset(x - starRadius, y + step),
-                        strokeWidth = 1f
-                    )
-                    y += step
+                    onDrawBehind {
+                        drawPath(
+                            path = patternPath,
+                            color = effectiveColor,
+                            style = Stroke(width = 1.1f)
+                        )
+                    }
                 }
-                x += step
-            }
-        }
+        )
 
         content()
     }
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawIslamicEightPointStar(
-    center: Offset,
-    radius: Float,
-    color: Color
-) {
-    val path = Path()
-    val points = 8
-    val innerRadius = radius * 0.45f
-
-    for (i in 0 until points * 2) {
-        val r = if (i % 2 == 0) radius else innerRadius
-        val angle = i * PI / points
-        val px = center.x + (r * cos(angle)).toFloat()
-        val py = center.y + (r * sin(angle)).toFloat()
-
-        if (i == 0) {
-            path.moveTo(px, py)
-        } else {
-            path.lineTo(px, py)
-        }
-    }
-    path.close()
-
-    drawPath(
-        path = path,
-        color = color,
-        style = Stroke(width = 1.2f, cap = StrokeCap.Round)
-    )
 }

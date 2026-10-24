@@ -70,6 +70,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -121,7 +122,10 @@ import com.example.ui.theme.PureWhite
 import com.example.ui.theme.RadiantEmerald
 import com.example.ui.theme.SlateMuted
 import com.example.util.PrayerCalculator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -141,6 +145,7 @@ fun PrayerTimesScreen(
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
 
     var selectedLocation by remember(currentLocation) { mutableStateOf(currentLocation) }
     var showCityDialog by remember { mutableStateOf(false) }
@@ -336,17 +341,23 @@ fun PrayerTimesScreen(
                         onToggleAlarm = { enabled ->
                             alarmSettings[prayer.type] = enabled
                             val updated = prayer.copy(isAlarmEnabled = enabled)
-                            if (enabled) {
-                                if (!PrayerAlarmScheduler.canScheduleExactAlarms(context)) {
-                                    PrayerAlarmScheduler.requestExactAlarmPermission(context)
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    if (enabled) {
+                                        if (!PrayerAlarmScheduler.canScheduleExactAlarms(context)) {
+                                            PrayerAlarmScheduler.requestExactAlarmPermission(context)
+                                        }
+                                        PrayerAlarmScheduler.schedulePrayerAlarm(context, updated)
+                                    } else {
+                                        PrayerAlarmScheduler.cancelPrayerAlarm(context, updated)
+                                    }
                                 }
-                                PrayerAlarmScheduler.schedulePrayerAlarm(context, updated)
-                                Toast.makeText(context, "${prayer.type.displayName} Adhan alert activated", Toast.LENGTH_SHORT).show()
-                            } else {
-                                PrayerAlarmScheduler.cancelPrayerAlarm(context, updated)
-                                Toast.makeText(context, "${prayer.type.displayName} alarm muted", Toast.LENGTH_SHORT).show()
                             }
-                            // Refresh list state
+                            Toast.makeText(
+                                context,
+                                if (enabled) "${prayer.type.displayName} Adhan alert activated" else "${prayer.type.displayName} alarm muted",
+                                Toast.LENGTH_SHORT
+                            ).show()
                             prayerTimes = PrayerCalculator.calculatePrayerTimes(
                                 latitude = selectedLocation.latitude,
                                 longitude = selectedLocation.longitude,

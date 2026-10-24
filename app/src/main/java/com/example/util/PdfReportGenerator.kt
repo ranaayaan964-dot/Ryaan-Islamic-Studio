@@ -21,6 +21,13 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Enterprise Data Model for the Zakat Assessment Report.
@@ -54,14 +61,31 @@ data class ZakatReportData(
  * complete with Islamic geometric borders, Bismillah, asset breakdown tables, classical Fiqh citations
  * (Surah At-Tawbah 9:103), and a digital Shariah compliance seal.
  *
- * Saves directly into the public Downloads directory and executes an instant Intent.ACTION_VIEW
- * via FileProvider for instant printing, opening, and sharing.
+ * Renders and saves on an IO dispatcher, then opens or shares the completed file on the main thread.
  */
 object PdfReportGenerator {
 
     private const val TAG = "PdfReportGenerator"
 
-    fun generateAndOpenZakatPdf(context: Context, data: ZakatReportData): File? {
+    private val exportScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val exportMutex = Mutex()
+
+    fun generateAndOpenZakatPdf(context: Context, data: ZakatReportData) {
+        val appContext = context.applicationContext
+        exportScope.launch {
+            val file = exportMutex.withLock { generateZakatPdfFile(appContext, data) }
+            withContext(Dispatchers.Main) {
+                if (file == null) {
+                    Toast.makeText(appContext, "Could not generate the Zakat certificate.", Toast.LENGTH_LONG).show()
+                } else {
+                    openPdf(appContext, file)
+                    Toast.makeText(appContext, "Certificate saved to Downloads & opened!", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun generateZakatPdfFile(context: Context, data: ZakatReportData): File? {
         val pdfDoc = PdfDocument()
 
         // Standard A4 Dimensions in PostScript points (595 x 842 pt = 8.27 x 11.69 inches)
@@ -501,37 +525,50 @@ object PdfReportGenerator {
             pdfDoc.close()
 
             val targetFile = fileToOpen ?: internalFile
-            val fileUri: Uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.provider",
-                targetFile
-            )
-
-            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(fileUri, "application/pdf")
-                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-
-            val chooser = Intent.createChooser(viewIntent, "Open Zakat Assessment Certificate").apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(chooser)
-
-            Toast.makeText(context, "Certificate saved to Downloads & opened!", Toast.LENGTH_LONG).show()
             targetFile
         } catch (e: Exception) {
             Log.e(TAG, "Error generating or opening Zakat PDF: ${e.message}", e)
             try { pdfDoc.close() } catch (_: Exception) {}
-            Toast.makeText(context, "PDF saved to Downloads folder.", Toast.LENGTH_SHORT).show()
             null
         }
     }
 
-    fun shareZakatPdf(context: Context, data: ZakatReportData) {
+    private fun openPdf(context: Context, file: File) {
         try {
-            val file = generateAndOpenZakatPdf(context, data)
-            val fileToShare = file ?: File(context.filesDir, "Zakat_Assessment_Certificate.pdf")
-            if (fileToShare.exists()) {
+            val fileUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.provider",
+                file
+            )
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(fileUri, "application/pdf")
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(Intent.createChooser(viewIntent, "Open Zakat Assessment Certificate").apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not open the generated Zakat PDF", e)
+            Toast.makeText(context, "PDF saved, but no compatible viewer could be opened.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun shareZakatPdf(context: Context, data: ZakatReportData) {
+        val appContext = context.applicationContext
+        exportScope.launch {
+            val file = exportMutex.withLock { generateZakatPdfFile(appContext, data) }
+            withContext(Dispatchers.Main) {
+                if (file != null && file.exists()) {
+                    sharePdf(appContext, file)
+                } else {
+                    Toast.makeText(appContext, "Could not generate the Zakat certificate.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun sharePdf(context: Context, fileToShare: File) {
+        try {
                 val fileUri: Uri = FileProvider.getUriForFile(
                     context,
                     "${context.packageName}.provider",
@@ -548,7 +585,6 @@ object PdfReportGenerator {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
                 context.startActivity(chooser)
-            }
         } catch (e: Exception) {
             Log.e(TAG, "Error sharing Zakat PDF: ${e.message}", e)
             Toast.makeText(context, "Could not share certificate.", Toast.LENGTH_SHORT).show()

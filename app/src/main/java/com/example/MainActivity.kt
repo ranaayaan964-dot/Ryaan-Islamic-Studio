@@ -159,13 +159,14 @@ class MainActivity : ComponentActivity() {
         // MODULE 17: Request battery optimization whitelist & OEM background persistence
         BatteryOptimizationHelper.requestIgnoreBatteryOptimization(this)
 
-        PrayerAlarmService.createNotificationChannel(this)
-        PrayerAlarmScheduler.ensureAllAlarmsScheduled(this)
+        lifecycleScope.launch(Dispatchers.IO) {
+            PrayerAlarmService.createNotificationChannel(this@MainActivity)
+            PrayerAlarmScheduler.ensureAllAlarmsScheduled(this@MainActivity)
 
-        // WorkManager Background Alarm Service for Daily Namaz Times from App Metadata
-        NamazAlarmWorker.createNamazNotificationChannel(this)
-        NamazWorkManagerScheduler.scheduleAllNamazFromMetadata(this)
-        NamazWorkManagerScheduler.schedulePeriodicDailySync(this)
+            NamazAlarmWorker.createNamazNotificationChannel(this@MainActivity)
+            NamazWorkManagerScheduler.scheduleAllNamazFromMetadata(this@MainActivity)
+            NamazWorkManagerScheduler.schedulePeriodicDailySync(this@MainActivity)
+        }
 
         // Observe cached coordinates from DataStore to minimize battery impact and provide instant location
         lifecycleScope.launch {
@@ -283,8 +284,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (PrayerAlarmScheduler.canScheduleExactAlarms(this)) {
-            PrayerAlarmScheduler.rescheduleFromStorage(this)
+        lifecycleScope.launch(Dispatchers.IO) {
+            if (PrayerAlarmScheduler.canScheduleExactAlarms(this@MainActivity)) {
+                PrayerAlarmScheduler.rescheduleFromStorage(this@MainActivity)
+            }
         }
     }
 
@@ -312,10 +315,6 @@ fun MainAppContainer(
     var activeEnterpriseScreen by remember { mutableStateOf(EnterpriseFeatureScreen.NONE) }
 
     val context = LocalContext.current
-    LaunchedEffect(Unit) {
-        QuranAudioController.bindService(context)
-    }
-
     val glassColors = com.example.ui.theme.LocalGlassTheme.current
 
     Scaffold(

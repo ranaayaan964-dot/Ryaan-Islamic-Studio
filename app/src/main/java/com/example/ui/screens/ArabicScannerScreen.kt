@@ -128,6 +128,15 @@ fun ArabicScannerScreen(
 
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
+    DisposableEffect(cameraExecutor) {
+        onDispose {
+            try {
+                cameraExecutor.shutdown()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -171,8 +180,8 @@ fun ArabicScannerScreen(
                             val prompt = """
                                 You are a highly qualified Islamic Scholar and certified translator. Your task is to translate the following Arabic text (from the Quran, Hadith, or Fiqh) verbatim into English and Urdu. DO NOT add any personal opinions, DO NOT summarize, and DO NOT hallucinate meanings. If you cannot perfectly translate a word, leave it in Arabic. Accuracy is a matter of strict religious compliance.
 
-                                Analyze the scanned Arabic calligraphy / Fatwa document:
-                                [Image Data: base64_${base64.take(30)}...]
+                                Analyze the scanned Arabic calligraphy / Fatwa document using the full image payload below.
+                                [Image Data: base64_${base64}]
 
                                 Provide structured response:
                                 1. EXTRACTED ARABIC TEXT: Transcribe the exact Arabic text.

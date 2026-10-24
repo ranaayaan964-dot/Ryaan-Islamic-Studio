@@ -1,8 +1,5 @@
 package com.example.service
 
-import android.os.CountDownTimer
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import com.example.data.model.PrayerTimeItem
 import com.example.data.model.PrayerType
@@ -14,6 +11,12 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 const val JAMAAT_GRACE_MILLIS = 45 * 60 * 1000L // 45 minutes
 
@@ -46,7 +49,6 @@ object PrayerCountdownEngine {
     private val _countdownState = MutableStateFlow(CountdownState())
     val countdownState = _countdownState.asStateFlow()
 
-    private var activeTimer: CountDownTimer? = null
     private var currentPrayers: List<PrayerTimeItem> = emptyList()
     private var currentSchedule: SahiwalPrayerSchedule? = null
     private var tickCount: Long = 0L
@@ -54,28 +56,8 @@ object PrayerCountdownEngine {
     // Optional simulated time offset for testing
     private var simulatedTimeMillis: Long? = null
 
-    // Dedicated Handler on Main Looper guaranteeing 1000ms continuous ticks
-    private var mainHandler: Handler? = null
-
-    private fun getOrCreateHandler(): Handler? {
-        if (mainHandler == null) {
-            mainHandler = try {
-                Handler(Looper.getMainLooper())
-            } catch (_: Throwable) {
-                null
-            }
-        }
-        return mainHandler
-    }
-
-    private val tickRunnable = object : Runnable {
-        override fun run() {
-            performTick()
-            getOrCreateHandler()?.postDelayed(this, 1000L)
-        }
-    }
-
-    private var isHandlerRunning = false
+    private val tickScope = CoroutineScope(Dispatchers.Default)
+    private var tickJob: Job? = null
 
     @Synchronized
     fun startEngine(prayers: List<PrayerTimeItem>, schedule: SahiwalPrayerSchedule? = null) {
@@ -176,12 +158,12 @@ object PrayerCountdownEngine {
     fun isSimulatedGracePeriodActive(): Boolean = simulatedTimeMillis != null && isSimulatedGrace
 
     private fun startPeriodicHandler() {
-        if (!isHandlerRunning) {
-            val handler = getOrCreateHandler()
-            if (handler != null) {
-                isHandlerRunning = true
-                handler.removeCallbacks(tickRunnable)
-                handler.post(tickRunnable)
+        if (tickJob?.isActive != true) {
+            tickJob = tickScope.launch {
+                while (isActive) {
+                    performTick()
+                    delay(1000L)
+                }
             }
         }
     }
@@ -389,9 +371,7 @@ object PrayerCountdownEngine {
     }
 
     fun stopEngine() {
-        activeTimer?.cancel()
-        activeTimer = null
-        mainHandler?.removeCallbacks(tickRunnable)
-        isHandlerRunning = false
+        tickJob?.cancel()
+        tickJob = null
     }
 }

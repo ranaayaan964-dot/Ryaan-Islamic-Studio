@@ -67,7 +67,6 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -116,7 +115,9 @@ import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.LightEmeraldBackground
 import com.example.ui.theme.LocalThemeIsDark
 import com.example.ui.theme.SuccessGreen
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun QuranTafsirScreen(
@@ -127,13 +128,6 @@ fun QuranTafsirScreen(
     val repository = remember { QuranRepository(context) }
     val preferences = remember { QuranReadingPreferences(context) }
     val scope = rememberCoroutineScope()
-
-    DisposableEffect(Unit) {
-        QuranAudioController.bindService(context)
-        onDispose {
-            QuranAudioController.unbindService(context)
-        }
-    }
 
     // Audio states from Controller
     val isPlaying by QuranAudioController.isPlaying.collectAsStateWithLifecycle()
@@ -625,7 +619,13 @@ fun QuranTafsirScreen(
                         item {
                             val downloadKey = "${activeQari.name}_${surah.id}"
                             val downloadProgress = downloadProgressMap[downloadKey]
-                            val isDownloaded = QuranDownloadManager.isSurahDownloaded(context, activeQari, surah.id)
+                            var isDownloaded by remember(surah.id, activeQari.name) { mutableStateOf(false) }
+
+                            LaunchedEffect(surah.id, activeQari.name) {
+                                isDownloaded = withContext(Dispatchers.IO) {
+                                    QuranDownloadManager.isSurahDownloaded(context, activeQari, surah.id)
+                                }
+                            }
 
                             SurahHeaderBanner(
                                 surah = surah,

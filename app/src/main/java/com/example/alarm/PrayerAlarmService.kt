@@ -420,26 +420,16 @@ class PrayerAlarmService : Service() {
         if (shortZikrRes != 0 || subhanallahRes != 0) {
             try {
                 val player = if (shortZikrRes != 0) {
-                    MediaPlayer.create(
-                        this,
-                        shortZikrRes,
-                        audioAttributes,
-                        audioManager?.generateAudioSessionId() ?: 0
-                    )
+                    createRawResourcePlayer(shortZikrRes, audioAttributes)
                 } else {
                     null
                 } ?: if (subhanallahRes != 0) {
-                    MediaPlayer.create(
-                        this,
-                        subhanallahRes,
-                        audioAttributes,
-                        audioManager?.generateAudioSessionId() ?: 0
-                    )
+                    createRawResourcePlayer(subhanallahRes, audioAttributes)
                 } else null
 
                 if (player != null) {
                     player.setOnCompletionListener { onComplete() }
-                    startPreparedPlayer(player, looping = false)
+                    preparePlayerAsync(player, looping = false)
                     Log.d(TAG, "Playing gentle 15-min notification chime")
                     return
                 }
@@ -541,14 +531,9 @@ class PrayerAlarmService : Service() {
         val prePrayerRes = resources.getIdentifier("pre_prayer_ayat", "raw", packageName)
         if (prePrayerRes != 0) {
             try {
-                val player = MediaPlayer.create(
-                    this,
-                    prePrayerRes,
-                    audioAttributes,
-                    audioManager?.generateAudioSessionId() ?: 0
-                )
+                val player = createRawResourcePlayer(prePrayerRes, audioAttributes)
                 if (player != null) {
-                    startPreparedPlayer(player, looping = true)
+                    preparePlayerAsync(player, looping = true)
                     Log.d(TAG, "MediaPlayer successfully playing pre_prayer_ayat")
                     return
                 }
@@ -561,14 +546,9 @@ class PrayerAlarmService : Service() {
         val subhanallahFallbackRes = resources.getIdentifier("subhanallah_reminder", "raw", packageName)
         if (subhanallahFallbackRes != 0) {
             try {
-                val player = MediaPlayer.create(
-                    this,
-                    subhanallahFallbackRes,
-                    audioAttributes,
-                    audioManager?.generateAudioSessionId() ?: 0
-                )
+                val player = createRawResourcePlayer(subhanallahFallbackRes, audioAttributes)
                 if (player != null) {
-                    startPreparedPlayer(player, looping = true)
+                    preparePlayerAsync(player, looping = true)
                     Log.d(TAG, "MediaPlayer playing fallback subhanallah_reminder")
                     return
                 }
@@ -686,16 +666,13 @@ class PrayerAlarmService : Service() {
 
         if (rawResId != 0) {
             try {
-                val player = MediaPlayer.create(
-                    this,
-                    rawResId,
-                    audioAttributes,
-                    audioManager?.generateAudioSessionId() ?: 0
-                )
+                val player = createRawResourcePlayer(rawResId, audioAttributes)
                 if (player != null) {
-                    startPreparedPlayer(player, looping = true) {
-                        playAlarmFallback(audioAttributes)
-                    }
+                    preparePlayerAsync(
+                        player,
+                        looping = true,
+                        onError = { playAlarmFallback(audioAttributes) }
+                    )
                     Log.d(TAG, "MediaPlayer successfully playing Adhan loop on STREAM_ALARM")
                     return
                 } else {
@@ -754,9 +731,9 @@ class PrayerAlarmService : Service() {
     private fun playAlarmFallback(audioAttributes: AudioAttributes) {
         val defaultAdhanId = resources.getIdentifier("default_adhan", "raw", packageName)
         if (defaultAdhanId != 0) {
-            val player = MediaPlayer.create(this, defaultAdhanId, audioAttributes, audioManager?.generateAudioSessionId() ?: 0)
+            val player = createRawResourcePlayer(defaultAdhanId, audioAttributes)
             if (player != null) {
-                startPreparedPlayer(player, looping = true) { playGeneratedAlarmBeep() }
+                preparePlayerAsync(player, looping = true, onError = { playGeneratedAlarmBeep() })
                 return
             }
         }
@@ -898,20 +875,31 @@ class PrayerAlarmService : Service() {
         }
     }
 
-    private fun startPreparedPlayer(player: MediaPlayer, looping: Boolean, onError: (() -> Unit)? = null) {
-        player.isLooping = looping
-        mediaPlayer = player
-        try {
-            player.setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
+    private fun createRawResourcePlayer(
+        rawResourceId: Int,
+        audioAttributes: AudioAttributes
+    ): MediaPlayer? {
+        val descriptor = try {
+            resources.openRawResourceFd(rawResourceId)
         } catch (e: Exception) {
-            Log.w(TAG, "Could not set MediaPlayer wake mode", e)
-        }
-        watchPlayerErrors(player, onError)
-        try {
-            player.start()
+            Log.e(TAG, "Could not open raw audio resource $rawResourceId", e)
+            return null
+        } ?: return null
+
+        return try {
+            MediaPlayer().apply {
+                setAudioAttributes(audioAttributes)
+                setDataSource(descriptor.fileDescriptor, descriptor.startOffset, descriptor.length)
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Could not start prepared alarm audio", e)
-            releaseFailedPlayer(player)
+            Log.e(TAG, "Could not configure raw audio resource $rawResourceId", e)
+            null
+        } finally {
+            try {
+                descriptor.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not close raw audio descriptor", e)
+            }
         }
     }
 

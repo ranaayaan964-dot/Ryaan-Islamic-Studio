@@ -157,19 +157,16 @@ object TahajjudAlarmManager {
 
     fun toggleAlarm(context: Context?, enabled: Boolean) {
         _state.value = _state.value.copy(isEnabled = enabled)
+        val appContext = context?.applicationContext ?: return
         if (enabled) {
             val targetMillis = if (_state.value.nextAlarmTimestampMillis > System.currentTimeMillis()) {
                 _state.value.nextAlarmTimestampMillis
             } else {
                 System.currentTimeMillis() + 8 * 3600 * 1000L
             }
-            if (context != null) {
-                scheduleSystemAlarm(context, targetMillis)
-            }
+            scheduleSystemAlarm(appContext, targetMillis)
         } else {
-            if (context != null) {
-                cancelSystemAlarm(context)
-            }
+            cancelSystemAlarm(appContext)
             if (_state.value.isRinging) {
                 stopGentleNatureSounds()
             }

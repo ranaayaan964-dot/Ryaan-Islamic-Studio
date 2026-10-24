@@ -94,6 +94,7 @@ import com.example.ui.theme.SlateMuted
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 
 /**
  * MODULE 1: PEARL WHITE LUXURY ADMIN LOGIN & STRICT SESSION PERSISTENCE
@@ -101,6 +102,11 @@ import kotlinx.coroutines.withContext
  * Strictly removed any demo quick-access; built as a high-security Pro app portal.
  * Features signature branding: "Created by Ryaan Usman with Ryaan Studio"
  */
+private fun hashString(value: String): String {
+    val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+    return bytes.joinToString(separator = "") { "%02x".format(it) }
+}
+
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit
@@ -118,16 +124,14 @@ fun LoginScreen(
 
     // Read cached credentials from SessionManager and prefill TextFields on screen initialization
     LaunchedEffect(Unit) {
-        val sessionManager = SessionManager.getInstance(context)
-        val cachedUser = sessionManager.getCachedUsername()
-        val cachedPass = sessionManager.getCachedPassword()
-        rememberMe = sessionManager.isRememberMe()
+        val (cachedUser, shouldRemember) = withContext(Dispatchers.IO) {
+            val sessionManager = SessionManager.getInstance(context)
+            sessionManager.getCachedUsername() to sessionManager.isRememberMe()
+        }
+        rememberMe = shouldRemember
 
         if (cachedUser.isNotBlank()) {
             username = cachedUser
-        }
-        if (cachedPass.isNotBlank()) {
-            password = cachedPass
         }
     }
 
@@ -146,22 +150,28 @@ fun LoginScreen(
         focusManager.clearFocus()
         val trimmedUser = username.trim()
         val trimmedPass = password.trim()
+        val expectedUser = "ryaan"
+        val expectedHash = hashString("11221122")
+        val suppliedHash = hashString(trimmedPass)
 
-        if (trimmedUser == "ryaan" && trimmedPass == "11221122") {
+        val isValidCredentials = trimmedUser.equals(expectedUser, ignoreCase = true) &&
+            suppliedHash == expectedHash
+
+        if (isValidCredentials) {
             errorMessage = null
             isLoading = true
 
             scope.launch {
                 withContext(Dispatchers.IO) {
                     val sessionManager = SessionManager.getInstance(context)
-                    sessionManager.saveCredentials(trimmedUser, trimmedPass, rememberMe)
+                    sessionManager.saveCredentials(trimmedUser.lowercase(), trimmedPass, rememberMe)
 
                     val appDb = AppDatabase.getInstance(context)
                     appDb.userDao().insertUser(
                         UserEntity(
                             id = 1L,
-                            username = "ryaan",
-                            passwordHash = trimmedPass,
+                            username = trimmedUser.lowercase(),
+                            passwordHash = expectedHash,
                             fullName = "Ryaan Usman (System Administrator)",
                             email = "ranaayaan964@gmail.com",
                             sessionToken = "session_${System.currentTimeMillis()}",
@@ -169,7 +179,7 @@ fun LoginScreen(
                             loginTimestamp = System.currentTimeMillis()
                         )
                     )
-                    com.example.data.repository.SettingsRepository.getInstance(context).setLoggedIn(true, "ryaan")
+                    com.example.data.repository.SettingsRepository.getInstance(context).setLoggedIn(true, trimmedUser.lowercase())
                 }
                 isLoading = false
                 onLoginSuccess()
@@ -600,4 +610,3 @@ fun LoginScreen(
         }
     }
 }
-

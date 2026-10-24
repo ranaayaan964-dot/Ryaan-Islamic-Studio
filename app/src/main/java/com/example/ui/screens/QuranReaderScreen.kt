@@ -68,7 +68,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -145,11 +144,6 @@ fun QuranReaderScreen(
     var showSurahPickerSheet by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var surahSearchQuery by remember { mutableStateOf("") }
-
-    // Connect to Background Quran Audio Player Service
-    LaunchedEffect(Unit) {
-        QuranAudioController.bindService(context)
-    }
 
     val isAudioPlaying by QuranAudioController.isPlaying.collectAsStateWithLifecycle()
     val activeAudioSurahId by QuranAudioController.activeSurahId.collectAsStateWithLifecycle()

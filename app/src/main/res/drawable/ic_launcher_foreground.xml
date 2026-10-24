@@ -5,38 +5,33 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Crescent moon -->
     <path
-        android:fillColor="#F5C76A"
-        android:pathData="M68,25c-12.6,0-22.8,10.2-22.8,22.8C45.2,60.4,55.4,70.6,68,70.6c6.9,0,13.2-3.1,17.5-8.1c-3.2,1.1-6.8,1.8-10.5,1.8c-14.1,0-25.5-11.4-25.5-25.5c0-7.1,2.9-13.5,7.6-18.1C68.8,25.1,68.4,25,68,25Z" />
-
-    <!-- Small 8-point star -->
+        android:fillColor="#D9AF62"
+        android:pathData="M25,76V48C25,31.98 37.98,19 54,19S83,31.98 83,48V76H25Z" />
     <path
-        android:fillColor="#FDE9A2"
-        android:pathData="M74,18L76,23L81,21L79,26L84,28L79,30L81,35L76,33L74,38L72,33L67,35L69,30L64,28L69,26L67,21L72,23Z" />
-
-    <!-- Mosque dome + arch -->
-    <path
-        android:fillColor="#F7E6A1"
-        android:pathData="M39,74V48c0-6.8,5.5-12.3,12.3-12.3h5.4c6.8,0,12.3,5.5,12.3,12.3v26H39Z" />
+        android:fillColor="#0A3329"
+        android:pathData="M33,68V48C33,36.4 42.4,27 54,27S75,36.4 75,48V68H33Z" />
 
     <path
-        android:fillColor="#E5B450"
-        android:pathData="M37,79h34v6H37z" />
+        android:fillColor="#F4D891"
+        android:pathData="M54,31C47.37,31 42,36.37 42,43S47.37,55 54,55C57.04,55 59.82,53.87 61.93,52C60.43,52.66 58.78,53.03 57.04,53.03C50.93,53.03 45.97,48.07 45.97,41.96C45.97,37.57 48.53,33.78 52.25,31.98C52.82,31.86 53.4,31.8 54,31.8V31Z" />
+    <path
+        android:fillColor="#F4D891"
+        android:pathData="M67,32L68.8,36.2L73,38L68.8,39.8L67,44L65.2,39.8L61,38L65.2,36.2Z" />
 
     <path
-        android:fillColor="#E5B450"
-        android:pathData="M45,73h18v10H45z" />
-
+        android:fillColor="#F4D891"
+        android:pathData="M36,57C42.5,55.4 48.5,56.8 54,61.2C59.5,56.8 65.5,55.4 72,57V70C65.5,68.4 59.5,69.8 54,74.2C48.5,69.8 42.5,68.4 36,70V57Z" />
     <path
-        android:fillColor="#FDE9A2"
-        android:pathData="M50,50h8v18h-8z" />
-
+        android:fillColor="#0A3329"
+        android:pathData="M39,60.2C44.1,59.3 48.4,60.5 52.5,63.3V69.3C48.4,66.5 44.1,65.3 39,66.2V60.2Z" />
     <path
-        android:fillColor="#FDE9A2"
-        android:pathData="M44,58h20v4H44z" />
-
+        android:fillColor="#0A3329"
+        android:pathData="M55.5,63.3C59.6,60.5 63.9,59.3 69,60.2V66.2C63.9,65.3 59.6,66.5 55.5,69.3V63.3Z" />
     <path
-        android:fillColor="#FFD76A"
-        android:pathData="M54,30c-7.7,0-14,6.3-14,14c0,3.4,1.2,6.6,3.4,9.1c2.7-2.4,6.3-3.8,10.3-3.8c6.3,0,11.8,3.5,14.5,8.7c4.3-2.7,7.2-7.4,7.2-12.9C75,36.3,68.7,30,61,30H54Z" />
+        android:fillColor="#E3BE73"
+        android:pathData="M52.5,61.2H55.5V74.2H52.5Z" />
+    <path
+        android:fillColor="#D9AF62"
+        android:pathData="M31,77H77V80H31Z" />
 </vector>

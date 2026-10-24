@@ -74,6 +74,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -121,9 +123,11 @@ fun SoundHubScreen(
 ) {
     val context = LocalContext.current
 
-    // Initialize audio cache
+    // Initialize audio cache off the UI thread; the cache walks local files and may block the first render.
     LaunchedEffect(Unit) {
-        AudioCacheManager.initialize(context)
+        withContext(Dispatchers.IO) {
+            AudioCacheManager.initialize(context)
+        }
     }
 
     // Stop preview on screen exit

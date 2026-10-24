@@ -1,11 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -156,15 +152,10 @@ fun HabitTrackerScreen() {
         )
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "FlameGlow")
-    val flamePulse by infiniteTransition.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "Flame"
+    val flameScale by animateFloatAsState(
+        targetValue = if (completedPrayerCount > 0) 1.05f else 1f,
+        animationSpec = tween(500),
+        label = "FlameScale"
     )
 
     fun togglePrayer(prayer: String) {
@@ -227,7 +218,7 @@ fun HabitTrackerScreen() {
                             Box(
                                 modifier = Modifier
                                     .size(54.dp)
-                                    .scale(flamePulse)
+                                    .scale(flameScale)
                                     .clip(CircleShape)
                                     .background(
                                         Brush.radialGradient(
