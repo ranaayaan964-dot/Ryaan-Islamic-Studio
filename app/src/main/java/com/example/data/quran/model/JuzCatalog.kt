@@ -410,4 +410,12 @@ object JuzCatalog {
     )
 
     fun getJuzById(id: Int): JuzInfo? = allJuz.firstOrNull { it.id == id }
+
+    fun getJuzForAyah(surahId: Int, verseNumber: Int): Int {
+        if (surahId !in 1..114 || verseNumber < 1) return 1
+        return allJuz.firstOrNull { juz ->
+            (surahId > juz.startSurahId || surahId == juz.startSurahId && verseNumber >= juz.startVerse) &&
+                (surahId < juz.endSurahId || surahId == juz.endSurahId && verseNumber <= juz.endVerse)
+        }?.id ?: 1
+    }
 }

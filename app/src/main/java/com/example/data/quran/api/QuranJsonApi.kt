@@ -3,6 +3,8 @@ package com.example.data.quran.api
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.example.data.quran.model.JuzCatalog
+import com.example.data.quran.seed.QuranSeedData
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -29,7 +31,12 @@ data class AyahData(
     val globalNumber: Int,
     val arabicText: String,
     val englishTranslation: String,
-    val audioUrl: String
+    val audioUrl: String,
+    val surahNumber: Int = 1,
+    val surahNameArabic: String = "الفاتحة",
+    val surahNameEnglish: String = "Al-Fatihah",
+    val juzNumber: Int = 1,
+    val urduTranslation: String = ""
 )
 
 /**
@@ -57,6 +64,7 @@ object QuranJsonApi {
 
     // In-memory cache to guarantee instant reloading without redundant network calls
     private val surahCache = ConcurrentHashMap<Int, SurahFullData>()
+    private val tafsirCache = ConcurrentHashMap<String, String>()
 
     /**
      * Fetches complete Surah data from the JSON API.
@@ -70,7 +78,7 @@ object QuranJsonApi {
             return@withContext Result.success(it)
         }
 
-        val url = "$PRIMARY_API_BASE/$clampedNumber/editions/quran-uthmani,en.sahih"
+        val url = "$PRIMARY_API_BASE/$clampedNumber/editions/quran-uthmani,en.sahih,ur.jalandhry"
         val request = Request.Builder()
             .url(url)
             .addHeader("Accept", "application/json")
@@ -82,7 +90,6 @@ object QuranJsonApi {
                 if (!response.isSuccessful || responseBody.isNullOrBlank()) {
                     Log.w(TAG, "API failed with code ${response.code}. Falling back to pre-seeded dataset.")
                     val fallback = getOfflineFallback(clampedNumber)
-                    surahCache[clampedNumber] = fallback
                     return@withContext Result.success(fallback)
                 }
 
@@ -90,13 +97,16 @@ object QuranJsonApi {
                 val status = json.optString("status", "")
                 if (status != "OK") {
                     val fallback = getOfflineFallback(clampedNumber)
-                    surahCache[clampedNumber] = fallback
                     return@withContext Result.success(fallback)
                 }
 
                 val dataArray = json.getJSONArray("data")
+                if (dataArray.length() < 3) {
+                    throw IllegalStateException("Quran API response did not include Arabic, English, and Urdu editions")
+                }
                 val uthmaniEdition = dataArray.getJSONObject(0)
                 val englishEdition = if (dataArray.length() > 1) dataArray.getJSONObject(1) else null
+                val urduEdition = if (dataArray.length() > 2) dataArray.getJSONObject(2) else null
 
                 val surahMeta = SurahInfo(
                     number = uthmaniEdition.getInt("number"),
@@ -109,6 +119,14 @@ object QuranJsonApi {
 
                 val uthmaniAyahs = uthmaniEdition.getJSONArray("ayahs")
                 val englishAyahs = englishEdition?.getJSONArray("ayahs")
+                val urduAyahs = urduEdition?.getJSONArray("ayahs")
+                if (englishAyahs == null || urduAyahs == null ||
+                    uthmaniAyahs.length() != surahMeta.numberOfAyahs ||
+                    englishAyahs.length() != surahMeta.numberOfAyahs ||
+                    urduAyahs.length() != surahMeta.numberOfAyahs
+                ) {
+                    throw IllegalStateException("Quran API returned incomplete Surah editions")
+                }
 
                 val ayahsList = mutableListOf<AyahData>()
                 val surahStr = clampedNumber.toString().padStart(3, '0')
@@ -118,8 +136,11 @@ object QuranJsonApi {
                     val globalNum = uObj.getInt("number")
                     val numInSurah = uObj.getInt("numberInSurah")
                     val arabic = uObj.getString("text")
-                    val english = englishAyahs?.optJSONObject(i)?.optString("text")
-                        ?: "Translation unavailable for verse $numInSurah"
+                    val english = englishAyahs.optJSONObject(i)?.optString("text").orEmpty()
+                    val urdu = urduAyahs.optJSONObject(i)?.optString("text").orEmpty()
+                    if (arabic.isBlank() || english.isBlank() || urdu.isBlank()) {
+                        throw IllegalStateException("Quran API returned an empty edition at Ayah $numInSurah")
+                    }
 
                     val ayahStr = numInSurah.toString().padStart(3, '0')
                     val audio = "https://everyayah.com/data/Alafasy_128kbps/$surahStr$ayahStr.mp3"
@@ -130,21 +151,98 @@ object QuranJsonApi {
                             globalNumber = globalNum,
                             arabicText = cleanArabicBismillahPrefix(arabic, clampedNumber, numInSurah),
                             englishTranslation = english,
-                            audioUrl = audio
+                            audioUrl = audio,
+                            surahNumber = clampedNumber,
+                            surahNameArabic = surahMeta.name,
+                            surahNameEnglish = surahMeta.englishName,
+                            juzNumber = JuzCatalog.getJuzForAyah(clampedNumber, numInSurah),
+                            urduTranslation = urdu
                         )
                     )
                 }
 
-                val fullData = SurahFullData(info = surahMeta, ayahs = ayahsList)
+                val fullData = SurahFullData(info = surahMeta, ayahs = ayahsList.sortedBy { it.numberInSurah })
                 surahCache[clampedNumber] = fullData
                 Result.success(fullData)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network exception fetching Surah $clampedNumber: ${e.message}", e)
             val fallback = getOfflineFallback(clampedNumber)
-            surahCache[clampedNumber] = fallback
             Result.success(fallback)
         }
+    }
+
+    suspend fun fetchJuz(juzNumber: Int): Result<List<AyahData>> = withContext(Dispatchers.IO) {
+        val juz = JuzCatalog.getJuzById(juzNumber.coerceIn(1, 30))
+            ?: return@withContext Result.failure(IllegalArgumentException("Unknown Juz $juzNumber"))
+        val ayahs = mutableListOf<AyahData>()
+        for (surahId in juz.startSurahId..juz.endSurahId) {
+            val surah = fetchSurah(surahId).getOrElse { return@withContext Result.failure(it) }
+            if (surah.ayahs.size != surah.info.numberOfAyahs ||
+                surah.ayahs.any { it.arabicText.isBlank() || it.urduTranslation.isBlank() }
+            ) {
+                return@withContext Result.failure(
+                    IllegalStateException("Complete Quran text is unavailable for Surah ${surah.info.englishName}")
+                )
+            }
+            val surahAyahs = surah.ayahs.filter { ayah ->
+                when {
+                    surahId == juz.startSurahId && surahId == juz.endSurahId ->
+                        ayah.numberInSurah in juz.startVerse..juz.endVerse
+                    surahId == juz.startSurahId -> ayah.numberInSurah >= juz.startVerse
+                    surahId == juz.endSurahId -> ayah.numberInSurah <= juz.endVerse
+                    else -> true
+                }
+            }
+            ayahs.addAll(surahAyahs)
+        }
+        Result.success(ayahs.sortedWith(compareBy(AyahData::surahNumber, AyahData::numberInSurah)))
+    }
+
+    suspend fun fetchTafsirAlMuyassar(surahNumber: Int, ayahNumber: Int): Result<String> = withContext(Dispatchers.IO) {
+        if (surahNumber !in 1..114 || ayahNumber < 1) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid Surah or Ayah number"))
+        }
+        val cacheKey = "$surahNumber:$ayahNumber"
+        tafsirCache[cacheKey]?.let { return@withContext Result.success(it) }
+
+        val request = Request.Builder()
+            .url("https://api.alquran.cloud/v1/ayah/$cacheKey/ar.muyassar")
+            .addHeader("Accept", "application/json")
+            .build()
+
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                val responseBody = response.body?.string()
+                if (!response.isSuccessful || responseBody.isNullOrBlank()) {
+                    return@withContext Result.failure(
+                        IllegalStateException("Tafsir API returned HTTP ${response.code}")
+                    )
+                }
+                val data = JSONObject(responseBody).optJSONObject("data")
+                    ?: return@withContext Result.failure(IllegalStateException("Tafsir response has no data"))
+                val edition = data.optJSONObject("edition")
+                val editionType = edition?.optString("type")
+                val commentary = data.optString("text").trim()
+                val responseSurah = data.optJSONObject("surah")?.optInt("number")
+                if (editionType != "tafsir" || edition?.optString("identifier") != "ar.muyassar" ||
+                    responseSurah != surahNumber || data.optInt("numberInSurah") != ayahNumber ||
+                    commentary.isBlank()
+                ) {
+                    return@withContext Result.failure(IllegalStateException("Tafsir response is incomplete"))
+                }
+                tafsirCache[cacheKey] = commentary
+                Result.success(commentary)
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.e(TAG, "Network exception fetching Tafsir for $cacheKey: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    fun cacheSurah(data: SurahFullData) {
+        surahCache[data.info.number] = data
     }
 
     /**
@@ -153,12 +251,20 @@ object QuranJsonApi {
      * Bismillah banner at the top of the Surah.
      */
     private fun cleanArabicBismillahPrefix(arabic: String, surahNum: Int, verseNum: Int): String {
-        val bismillah = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ"
-        if (surahNum != 1 && verseNum == 1 && arabic.startsWith(bismillah)) {
-            val cleaned = arabic.removePrefix(bismillah).trim()
-            return if (cleaned.isNotEmpty()) cleaned else arabic
+        val text = arabic.removePrefix("\uFEFF")
+        if (surahNum in 2..114 && surahNum != 9 && verseNum == 1) {
+            val prefixes = listOf(
+                "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ",
+                "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+                "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ"
+            )
+            val prefix = prefixes.firstOrNull { text.startsWith(it) }
+            if (prefix != null) {
+                val cleaned = text.removePrefix(prefix).trim()
+                return if (cleaned.isNotEmpty()) cleaned else text
+            }
         }
-        return arabic
+        return text
     }
 
     /**
@@ -199,23 +305,44 @@ object QuranJsonApi {
                 AyahData(5, 6235, "ٱلَّذِى يُوَسْوِسُ فِى صُدُورِ ٱلنَّاسِ", "Who whispers into the breasts of mankind -", "https://everyayah.com/data/Alafasy_128kbps/114005.mp3"),
                 AyahData(6, 6236, "مِنَ ٱلْجِنَّةِ وَٱلنَّاسِ", "From among the jinn and mankind.\"", "https://everyayah.com/data/Alafasy_128kbps/114006.mp3")
             )
-            else -> {
-                // Generate informative placeholder ayahs for other Surahs when offline
-                (1..info.numberOfAyahs.coerceAtMost(7)).map { v ->
+            else -> QuranSeedData.getInitialAyahs()
+                .filter { it.surahId == surahNumber }
+                .map { ayah ->
                     val surahPad = surahNumber.toString().padStart(3, '0')
-                    val ayahPad = v.toString().padStart(3, '0')
+                    val ayahPad = ayah.verseNumber.toString().padStart(3, '0')
                     AyahData(
-                        numberInSurah = v,
-                        globalNumber = v,
-                        arabicText = "آيَةٌ كَرِيمَةٌ مِنْ ${info.name} • الآيَةُ $v",
-                        englishTranslation = "Verse $v of ${info.englishName} (${info.englishNameTranslation}). Connect to the internet to load full Uthmani text.",
-                        audioUrl = "https://everyayah.com/data/Alafasy_128kbps/$surahPad$ayahPad.mp3"
+                        numberInSurah = ayah.verseNumber,
+                        globalNumber = ayah.globalVerseNumber,
+                        arabicText = ayah.textArabic,
+                        englishTranslation = ayah.textEnglishTranslation,
+                        audioUrl = "https://everyayah.com/data/Alafasy_128kbps/$surahPad$ayahPad.mp3",
+                        surahNumber = surahNumber,
+                        surahNameArabic = info.name,
+                        surahNameEnglish = info.englishName,
+                        juzNumber = JuzCatalog.getJuzForAyah(surahNumber, ayah.verseNumber),
+                        urduTranslation = ayah.textUrduTranslation
                     )
                 }
-            }
         }
 
-        return SurahFullData(info, ayahs)
+        val seedUrduByVerse = QuranSeedData.getInitialAyahs()
+            .filter { it.surahId == surahNumber }
+            .associateBy { it.verseNumber }
+        val surahArabicName = info.name
+        return SurahFullData(
+            info,
+            ayahs.map { ayah ->
+                ayah.copy(
+                    surahNumber = surahNumber,
+                    surahNameArabic = surahArabicName,
+                    surahNameEnglish = info.englishName,
+                    juzNumber = JuzCatalog.getJuzForAyah(surahNumber, ayah.numberInSurah),
+                    urduTranslation = ayah.urduTranslation.ifBlank {
+                        seedUrduByVerse[ayah.numberInSurah]?.textUrduTranslation.orEmpty()
+                    }
+                )
+            }
+        )
     }
 
     /**

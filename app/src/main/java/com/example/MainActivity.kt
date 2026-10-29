@@ -45,7 +45,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,6 +87,7 @@ import com.example.ui.screens.SmartZakatScreen
 import com.example.ui.screens.SoundHubScreen
 import com.example.ui.screens.SplashScreen
 import com.example.ui.screens.TahajjudWakeupScreen
+import com.example.ui.screens.TermsAgreementScreen
 import com.example.ui.theme.DeepRoyalEmerald
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.PlatinumGold
@@ -111,6 +111,7 @@ import kotlinx.coroutines.launch
 enum class AppDestination {
     SPLASH,
     LOGIN,
+    AGREEMENT,
     MAIN_APP
 }
 
@@ -182,7 +183,7 @@ class MainActivity : ComponentActivity() {
         requestAppPermissions()
 
         setContent {
-            var currentDestination by rememberSaveable { mutableStateOf(AppDestination.SPLASH) }
+            var currentDestination by remember { mutableStateOf(AppDestination.SPLASH) }
             val updateViewModel: UpdateViewModel = viewModel()
             val updateState by updateViewModel.uiState.collectAsStateWithLifecycle()
             val themeRepo = remember { com.example.data.repository.ThemeSettingsRepository.getInstance(this@MainActivity) }
@@ -212,15 +213,20 @@ class MainActivity : ComponentActivity() {
                         AppDestination.SPLASH -> {
                             SplashScreen(
                                 onNavigateNext = { isLoggedIn ->
-                                    currentDestination = if (isLoggedIn) AppDestination.MAIN_APP else AppDestination.LOGIN
+                                    currentDestination = if (isLoggedIn) AppDestination.AGREEMENT else AppDestination.LOGIN
                                 }
                             )
                         }
                         AppDestination.LOGIN -> {
                             LoginScreen(
                                 onLoginSuccess = {
-                                    currentDestination = AppDestination.MAIN_APP
+                                    currentDestination = AppDestination.AGREEMENT
                                 }
+                            )
+                        }
+                        AppDestination.AGREEMENT -> {
+                            TermsAgreementScreen(
+                                onAgree = { currentDestination = AppDestination.MAIN_APP }
                             )
                         }
                         AppDestination.MAIN_APP -> {
@@ -229,6 +235,7 @@ class MainActivity : ComponentActivity() {
                                 onLocationChange = { userLocation = it },
                                 onLogout = {
                                     lifecycleScope.launch(Dispatchers.IO) {
+                                        com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
                                         SessionManager.getInstance(this@MainActivity).logout()
                                         AppDatabase.getInstance(this@MainActivity).userDao().logout()
                                         com.example.data.repository.SettingsRepository.getInstance(this@MainActivity).setLoggedIn(false)
@@ -313,6 +320,7 @@ fun MainAppContainer(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var activeEnterpriseScreen by remember { mutableStateOf(EnterpriseFeatureScreen.NONE) }
+    var selectedTafsirSurahId by remember { mutableIntStateOf(1) }
 
     val context = LocalContext.current
     val glassColors = com.example.ui.theme.LocalGlassTheme.current
@@ -479,7 +487,10 @@ fun MainAppContainer(
                     )
                 }
                 EnterpriseFeatureScreen.QURAN_TAFSIR -> {
-                    QuranTafsirScreen(onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
+                    QuranTafsirScreen(
+                        initialSurahId = selectedTafsirSurahId,
+                        onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE }
+                    )
                 }
                 EnterpriseFeatureScreen.TABEER_DREAM -> {
                     com.example.ui.screens.TabeerDreamScreen(onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
@@ -521,7 +532,10 @@ fun MainAppContainer(
                 EnterpriseFeatureScreen.QURAN_READER -> {
                     QuranReaderScreen(
                         onBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE },
-                        onOpenTafsir = { activeEnterpriseScreen = EnterpriseFeatureScreen.QURAN_TAFSIR }
+                        onOpenTafsir = {
+                            selectedTafsirSurahId = it
+                            activeEnterpriseScreen = EnterpriseFeatureScreen.QURAN_TAFSIR
+                        }
                     )
                 }
                 EnterpriseFeatureScreen.FAMILY_TRACKER -> {

@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [UserEntity::class, ChatHistoryEntity::class, QazaPrayerEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -68,6 +68,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val userColumns = db.query("PRAGMA table_info(`users`)").use { cursor ->
+                    buildSet {
+                        val nameColumn = cursor.getColumnIndex("name")
+                        while (cursor.moveToNext()) {
+                            if (nameColumn >= 0) add(cursor.getString(nameColumn))
+                        }
+                    }
+                }
+                if ("firebase_uid" !in userColumns) {
+                    db.execSQL("ALTER TABLE `users` ADD COLUMN `firebase_uid` TEXT NOT NULL DEFAULT ''")
+                }
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -79,6 +95,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "enterprise_app_database.db"
                 )
                     .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_2_3)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                 INSTANCE = instance

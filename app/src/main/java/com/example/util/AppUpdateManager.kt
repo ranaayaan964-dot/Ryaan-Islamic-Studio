@@ -90,7 +90,7 @@ object AppUpdateManager {
                         latestVersionName = remoteTag,
                         latestVersionCode = currentCode + 1,
                         releaseDate = "Latest GitHub Release",
-                        releaseNotes = "Version $remoteTag of Ryaan Islamic Studio is now available! Please update to get the latest features and bug fixes.",
+                        releaseNotes = "Version $remoteTag of Ayaan Islamic Studio is now available! Please update to get the latest features and bug fixes.",
                         downloadUrl = downloadUrl,
                         isMandatory = true
                     )
@@ -115,7 +115,7 @@ object AppUpdateManager {
                             latestVersionName = remoteTag,
                             latestVersionCode = currentCode + 1,
                             releaseDate = "Latest GitHub Release",
-                            releaseNotes = "Version $remoteTag of Ryaan Islamic Studio is now available! Please update to get the latest features and bug fixes.",
+                            releaseNotes = "Version $remoteTag of Ayaan Islamic Studio is now available! Please update to get the latest features and bug fixes.",
                             downloadUrl = downloadUrl,
                             isMandatory = true
                         )
@@ -143,7 +143,7 @@ object AppUpdateManager {
                             latestVersionName = remoteTag,
                             latestVersionCode = currentCode + 1,
                             releaseDate = "Latest GitHub Release",
-                            releaseNotes = "Version $remoteTag of Ryaan Islamic Studio is now available! Please update to get the latest features and bug fixes.",
+                            releaseNotes = "Version $remoteTag of Ayaan Islamic Studio is now available! Please update to get the latest features and bug fixes.",
                             downloadUrl = downloadUrl,
                             isMandatory = true
                         )

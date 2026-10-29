@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -67,6 +68,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -81,12 +83,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.window.Dialog
+import com.example.data.quran.api.QuranJsonApi
 import com.example.data.quran.model.AyahEntity
 import com.example.data.quran.model.BookmarkEntity
 import com.example.data.quran.model.JuzCatalog
@@ -121,6 +127,7 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun QuranTafsirScreen(
+    initialSurahId: Int = 1,
     onNavigateBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -134,6 +141,7 @@ fun QuranTafsirScreen(
     val currentPositionMs by QuranAudioController.currentPositionMs.collectAsStateWithLifecycle()
     val currentDurationMs by QuranAudioController.currentDurationMs.collectAsStateWithLifecycle()
     val activeSurahId by QuranAudioController.activeSurahId.collectAsStateWithLifecycle()
+    val activeAyahNumber by QuranAudioController.activeAyahNumber.collectAsStateWithLifecycle()
     val activeSurahName by QuranAudioController.activeSurahName.collectAsStateWithLifecycle()
     val activeQari by QuranAudioController.activeQari.collectAsStateWithLifecycle()
     val isOfflineAudio by QuranAudioController.isOfflineAudio.collectAsStateWithLifecycle()
@@ -161,7 +169,18 @@ fun QuranTafsirScreen(
     var selectedSurah by remember { mutableStateOf<SurahEntity?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedTafsirAyah by remember { mutableStateOf<AyahEntity?>(null) }
+    var tafsirCommentary by remember { mutableStateOf<String?>(null) }
+    var isLoadingTafsir by remember { mutableStateOf(false) }
+    var tafsirError by remember { mutableStateOf<String?>(null) }
+    var tafsirLoadAttempt by remember { mutableIntStateOf(0) }
     var selectedWordByWordAyah by remember { mutableStateOf<AyahEntity?>(null) }
+    var selectedJuz by remember { mutableStateOf<JuzInfo?>(null) }
+    var juzAyahs by remember { mutableStateOf<List<AyahEntity>>(emptyList()) }
+    var isLoadingJuz by remember { mutableStateOf(false) }
+    var juzErrorMessage by remember { mutableStateOf<String?>(null) }
+    var juzLoadAttempt by remember { mutableIntStateOf(0) }
+    var isDownloadingFullQuran by remember { mutableStateOf(false) }
+    var offlineDownloadProgress by remember { mutableIntStateOf(0) }
 
     // Tab 0 = Surahs (114), Tab 1 = Juz (30)
     var currentTab by remember { mutableIntStateOf(0) }
@@ -178,11 +197,60 @@ fun QuranTafsirScreen(
     val ayahList by remember(currentSurahId) {
         repository.getAyahsForSurahFlow(currentSurahId)
     }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val displayedAyahs = if (selectedJuz != null) juzAyahs else ayahList
 
-    LaunchedEffect(surahs) {
+    LaunchedEffect(surahs, initialSurahId) {
         if (selectedSurah == null && surahs.isNotEmpty()) {
-            selectedSurah = surahs.firstOrNull()
+            selectedSurah = surahs.firstOrNull { it.id == initialSurahId.coerceIn(1, 114) } ?: surahs.firstOrNull()
         }
+    }
+
+    LaunchedEffect(currentSurahId, selectedJuz?.id) {
+        if (selectedJuz != null) return@LaunchedEffect
+        repository.getOrFetchAyahsForSurah(currentSurahId)
+    }
+
+    LaunchedEffect(selectedJuz?.id, juzLoadAttempt) {
+        val juz = selectedJuz
+        if (juz == null) {
+            juzAyahs = emptyList()
+            juzErrorMessage = null
+            isLoadingJuz = false
+            return@LaunchedEffect
+        }
+
+        isLoadingJuz = true
+        juzErrorMessage = null
+        juzAyahs = emptyList()
+        try {
+            juzAyahs = repository.getOrFetchAyahsForJuz(juz.id)
+            if (juzAyahs.isEmpty()) {
+                juzErrorMessage = "Complete text for Para ${juz.id} is not available offline. Connect to the internet and retry."
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            juzErrorMessage = "Unable to load Para ${juz.id}: ${e.message}"
+        } finally {
+            isLoadingJuz = false
+        }
+    }
+
+    LaunchedEffect(selectedTafsirAyah?.globalVerseNumber, tafsirLoadAttempt) {
+        val ayah = selectedTafsirAyah
+        if (ayah == null) {
+            tafsirCommentary = null
+            tafsirError = null
+            isLoadingTafsir = false
+            return@LaunchedEffect
+        }
+
+        isLoadingTafsir = true
+        tafsirCommentary = null
+        tafsirError = null
+        val result = QuranJsonApi.fetchTafsirAlMuyassar(ayah.surahId, ayah.verseNumber)
+        result.onSuccess { tafsirCommentary = it }
+            .onFailure { tafsirError = "Unable to load Tafsir al-Muyassar: ${it.message}" }
+        isLoadingTafsir = false
     }
 
     val filteredSurahs = remember(surahs, searchQuery) {
@@ -514,6 +582,38 @@ fun QuranTafsirScreen(
                 )
             )
 
+            androidx.compose.material3.Button(
+                onClick = {
+                    if (!isDownloadingFullQuran) {
+                        scope.launch {
+                            isDownloadingFullQuran = true
+                            offlineDownloadProgress = 0
+                            val complete = repository.downloadFullQuranOffline { completed, _ ->
+                                scope.launch { offlineDownloadProgress = completed }
+                            }
+                            isDownloadingFullQuran = false
+                            Toast.makeText(
+                                context,
+                                if (complete) "Full Quran is available offline"
+                                else "Download stopped at Surah $offlineDownloadProgress. Please retry when online.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                },
+                enabled = !isDownloadingFullQuran,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            ) {
+                Text(if (isDownloadingFullQuran) "Downloading Quran: $offlineDownloadProgress / 114 Surahs"
+                else "Download All 30 Paras Offline")
+            }
+            if (isDownloadingFullQuran) {
+                LinearProgressIndicator(
+                    progress = { offlineDownloadProgress / 114f },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                )
+            }
+
             if (currentTab == 1) {
                 // Juz / Para Navigation View
                 JuzListView(
@@ -521,6 +621,7 @@ fun QuranTafsirScreen(
                     onSelectJuz = { juz ->
                         val targetSurah = surahs.firstOrNull { it.id == juz.startSurahId }
                         if (targetSurah != null) {
+                            selectedJuz = juz
                             selectedSurah = targetSurah
                             currentTab = 0
                             searchQuery = ""
@@ -531,9 +632,7 @@ fun QuranTafsirScreen(
                                     targetSurah.nameEnglish,
                                     targetSurah.nameArabic
                                 )
-                                if (juz.startVerse > 1) {
-                                    readerListState.animateScrollToItem(juz.startVerse.coerceAtLeast(0))
-                                }
+                                readerListState.scrollToItem(0)
                             }
                         }
                     },
@@ -551,6 +650,7 @@ fun QuranTafsirScreen(
                         onResume = {
                             val targetSurah = surahs.firstOrNull { it.id == lastRead.surahId }
                             if (targetSurah != null) {
+                                selectedJuz = null
                                 selectedSurah = targetSurah
                             }
                         }
@@ -572,6 +672,7 @@ fun QuranTafsirScreen(
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(if (isSelected) MaterialTheme.colorScheme.primary else if (isDark) Color(0x22FFFFFF) else Color(0x14000000))
                                     .clickable {
+                                        selectedJuz = null
                                         selectedSurah = surah
                                         scope.launch {
                                             preferences.saveLastRead(surah.id, 1, surah.nameEnglish, surah.nameArabic)
@@ -604,6 +705,7 @@ fun QuranTafsirScreen(
                             surah = surah,
                             isSelected = surah.id == selectedSurah?.id,
                             onClick = {
+                                selectedJuz = null
                                 selectedSurah = surah
                                 searchQuery = ""
                                 scope.launch {
@@ -614,6 +716,20 @@ fun QuranTafsirScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                 } else {
+                    selectedJuz?.let { juz ->
+                        item {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text("Para ${juz.id}: ${juz.nameEnglish}", fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Text(juz.nameArabic, fontSize = 22.sp, color = GoldPrimary)
+                                Text("${juz.startSurahName} ${juz.startVerse} — ${juz.endSurahName} ${juz.endVerse} • ${juz.totalVersesInJuz} Ayahs",
+                                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    } ?: run {
                     // Top section: Selected Surah Header Banner with Audio & Offline Download
                     selectedSurah?.let { surah ->
                         item {
@@ -654,6 +770,7 @@ fun QuranTafsirScreen(
                             Spacer(modifier = Modifier.height(14.dp))
                         }
                     }
+                    }
 
                     // Ayahs Section for Selected Surah
                     selectedSurah?.let { surah ->
@@ -666,20 +783,21 @@ fun QuranTafsirScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Ayahs & Commentary",
+                                    text = if (selectedJuz == null) "Ayahs & Commentary" else "Para ${selectedJuz?.id} Ayahs & Commentary",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
-                                    text = "${ayahList.size} of ${surah.totalVerses} loaded",
+                                    text = if (selectedJuz == null) "${ayahList.size} of ${surah.totalVerses} loaded"
+                                        else "${displayedAyahs.size} verses in this Para",
                                     fontSize = 11.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
 
-                        if (ayahList.isEmpty()) {
+                        if (displayedAyahs.isEmpty()) {
                             item {
                                 GlassCard(
                                     modifier = Modifier
@@ -692,28 +810,66 @@ fun QuranTafsirScreen(
                                             .padding(20.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(28.dp),
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Text(
-                                            text = "Loading Ayahs from Room Database...",
-                                            fontSize = 13.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                        if (selectedJuz != null && !isLoadingJuz) {
+                                            Text(
+                                                text = juzErrorMessage ?: "No complete Ayahs are available for this Para.",
+                                                fontSize = 13.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            androidx.compose.material3.TextButton(
+                                                onClick = { juzLoadAttempt++ }
+                                            ) {
+                                                Text("Retry")
+                                            }
+                                        } else {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(28.dp),
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Text(
+                                                text = if (selectedJuz != null) "Loading Para ${selectedJuz?.id} Ayahs..."
+                                                    else "Loading Ayahs from Room Database...",
+                                                fontSize = 13.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }
                         } else {
-                            items(ayahList, key = { it.globalVerseNumber }) { ayah ->
+                            items(displayedAyahs, key = { it.globalVerseNumber }) { ayah ->
+                                val ayahSurah = surahs.firstOrNull { it.id == ayah.surahId } ?: surah
                                 val isCurrentAyahSync = isPlaying &&
                                         activeSurahId == ayah.surahId &&
-                                        currentPositionMs in ayah.audioStartTimeMs..ayah.audioEndTimeMs
+                                        (activeAyahNumber == ayah.verseNumber ||
+                                            currentPositionMs in ayah.audioStartTimeMs..ayah.audioEndTimeMs)
 
                                 val isBookmarked = bookmarks.any { it.surahId == ayah.surahId && it.verseNumber == ayah.verseNumber }
                                 val isLoopingThisAyah = loopingAyah?.surahId == ayah.surahId && loopingAyah?.verseNumber == ayah.verseNumber
 
+                                if (selectedJuz != null && (ayah.verseNumber == 1 ||
+                                        ayah.surahId == selectedJuz?.startSurahId && ayah.verseNumber == selectedJuz?.startVerse)
+                                ) {
+                                    Text(
+                                        text = "${ayahSurah.nameArabic} • ${ayahSurah.id}. ${ayahSurah.nameEnglish}",
+                                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    if (ayah.verseNumber == 1 && ayah.surahId != 1 && ayah.surahId != 9) {
+                                        Text(
+                                            text = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ",
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                            fontSize = 20.sp,
+                                            color = GoldPrimary,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
                                 AyahCardItem(
                                     ayah = ayah,
                                     isHighlighted = isCurrentAyahSync,
@@ -726,58 +882,53 @@ fun QuranTafsirScreen(
                                     onOpenTafsir = { selectedTafsirAyah = ayah },
                                     onOpenWordByWord = { selectedWordByWordAyah = ayah },
                                     onPlayFromHere = {
-                                        selectedSurah?.let { s ->
-                                            QuranAudioController.playSurahWithQari(
+                                        QuranAudioController.playAyah(
                                                 context = context,
-                                                surahId = s.id,
-                                                surahName = s.nameEnglish,
-                                                qariId = activeQari,
-                                                startPositionMs = ayah.audioStartTimeMs
+                                                surahId = ayahSurah.id,
+                                                surahName = ayahSurah.nameEnglish,
+                                                ayahNumber = ayah.verseNumber,
+                                                totalAyahs = ayahSurah.totalVerses,
+                                                qariId = activeQari
                                             )
                                             scope.launch {
-                                                preferences.saveLastRead(s.id, ayah.verseNumber, s.nameEnglish, s.nameArabic)
+                                                preferences.saveLastRead(ayahSurah.id, ayah.verseNumber, ayahSurah.nameEnglish, ayahSurah.nameArabic)
                                                 preferences.incrementVersesRead()
                                             }
-                                        }
                                     },
                                     onToggleBookmark = {
-                                        selectedSurah?.let { s ->
-                                            scope.launch {
-                                                repository.toggleBookmark(
-                                                    surahId = ayah.surahId,
-                                                    verseNumber = ayah.verseNumber,
-                                                    surahNameEnglish = s.nameEnglish,
-                                                    surahNameArabic = s.nameArabic,
-                                                    textArabic = ayah.textArabic,
-                                                    textEnglish = ayah.textEnglishTranslation,
-                                                    textUrdu = ayah.textUrduTranslation
-                                                )
-                                            }
+                                        scope.launch {
+                                            repository.toggleBookmark(
+                                                surahId = ayah.surahId,
+                                                verseNumber = ayah.verseNumber,
+                                                surahNameEnglish = ayahSurah.nameEnglish,
+                                                surahNameArabic = ayahSurah.nameArabic,
+                                                textArabic = ayah.textArabic,
+                                                textEnglish = ayah.textEnglishTranslation,
+                                                textUrdu = ayah.textUrduTranslation
+                                            )
                                         }
                                     },
                                     onLoopAyah = {
-                                        selectedSurah?.let { s ->
-                                            val nextMode = when (repeatMode) {
-                                                HifzRepeatMode.OFF -> HifzRepeatMode.REPEAT_3X
-                                                HifzRepeatMode.REPEAT_3X -> HifzRepeatMode.REPEAT_5X
-                                                HifzRepeatMode.REPEAT_5X -> HifzRepeatMode.REPEAT_INFINITE
-                                                else -> HifzRepeatMode.OFF
-                                            }
-                                            QuranAudioController.playAyahLoop(
-                                                context = context,
-                                                surahId = s.id,
-                                                surahName = s.nameEnglish,
-                                                qariId = activeQari,
-                                                ayah = ayah,
-                                                repeatMode = nextMode
-                                            )
+                                        val nextMode = when (repeatMode) {
+                                            HifzRepeatMode.OFF -> HifzRepeatMode.REPEAT_3X
+                                            HifzRepeatMode.REPEAT_3X -> HifzRepeatMode.REPEAT_5X
+                                            HifzRepeatMode.REPEAT_5X -> HifzRepeatMode.REPEAT_INFINITE
+                                            else -> HifzRepeatMode.OFF
                                         }
+                                        QuranAudioController.playAyahLoop(
+                                            context = context,
+                                            surahId = ayahSurah.id,
+                                            surahName = ayahSurah.nameEnglish,
+                                            qariId = activeQari,
+                                            ayah = ayah,
+                                            repeatMode = nextMode
+                                        )
                                     },
                                     onCopyAyah = {
-                                        copyVerseToClipboard(context, ayah, selectedSurah?.nameEnglish ?: "Quran")
+                                        copyVerseToClipboard(context, ayah, ayahSurah.nameEnglish)
                                     },
                                     onShareAyah = {
-                                        shareVerse(context, ayah, selectedSurah?.nameEnglish ?: "Quran")
+                                        shareVerse(context, ayah, ayahSurah.nameEnglish)
                                     }
                                 )
                                 Spacer(modifier = Modifier.height(10.dp))
@@ -795,10 +946,14 @@ fun QuranTafsirScreen(
             }
         }
 
-        // Tafsir Ibn Kathir Dialog
+        // Tafsir dialog
         selectedTafsirAyah?.let { ayah ->
             TafsirDialog(
                 ayah = ayah,
+                commentary = tafsirCommentary,
+                isLoading = isLoadingTafsir,
+                errorMessage = tafsirError,
+                onRetry = { tafsirLoadAttempt++ },
                 onDismiss = { selectedTafsirAyah = null }
             )
         }
@@ -881,6 +1036,7 @@ fun QuranTafsirScreen(
                 onSelectBookmark = { bookmark ->
                     val targetSurah = surahs.firstOrNull { it.id == bookmark.surahId }
                     if (targetSurah != null) {
+                        selectedJuz = null
                         selectedSurah = targetSurah
                     }
                 },
@@ -1216,7 +1372,7 @@ private fun AyahCardItem(
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "Ayah ${ayah.verseNumber}",
+                        text = "${ayah.surahId}:${ayah.verseNumber} • Juz ${JuzCatalog.getJuzForAyah(ayah.surahId, ayah.verseNumber)}",
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -1291,7 +1447,7 @@ private fun AyahCardItem(
 
                     Spacer(modifier = Modifier.width(6.dp))
 
-                    // Tafsir Ibn Kathir button
+                    // Tafsir button
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
@@ -1326,54 +1482,69 @@ private fun AyahCardItem(
                         defaultColor = baseColor
                     )
                 }
-                Text(
-                    text = tajweedAnnotated,
-                    fontSize = arabicFontSize.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Right,
-                    lineHeight = (arabicFontSize * 1.6f).sp,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                val annotatedVerse = remember(tajweedAnnotated, ayah.verseNumber) {
+                    buildAnnotatedString {
+                        append(tajweedAnnotated)
+                        append(" ﴿${ayah.verseNumber}﴾")
+                    }
+                }
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    Text(
+                        text = annotatedVerse,
+                        fontSize = arabicFontSize.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Right,
+                        lineHeight = (arabicFontSize * 1.6f).sp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             } else {
-                Text(
-                    text = ayah.textArabic,
-                    fontSize = arabicFontSize.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = baseColor,
-                    textAlign = TextAlign.Right,
-                    lineHeight = (arabicFontSize * 1.6f).sp,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    Text(
+                        text = "${ayah.textArabic} ﴿${ayah.verseNumber}﴾",
+                        fontSize = arabicFontSize.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = baseColor,
+                        textAlign = TextAlign.Right,
+                        lineHeight = (arabicFontSize * 1.6f).sp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
 
-            // English Translation (if enabled)
-            if (showEnglish && ayah.textEnglishTranslation.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = ayah.textEnglishTranslation,
-                    fontSize = 13.5.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 20.sp
-                )
-            }
-
-            // Urdu Translation (if enabled)
+            // Urdu translation precedes the English rendering in Mushaf reading order.
             if (showUrdu && ayah.textUrduTranslation.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isDark) Color(0x1C10B981) else Color(0x1010B981))
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isDark) Color(0x1C10B981) else Color(0x1010B981))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = ayah.textUrduTranslation,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isDark) Color(0xFF6EE7B7) else Color(0xFF065F46),
+                            textAlign = TextAlign.Right,
+                            lineHeight = 22.sp,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+
+            if (showEnglish && ayah.textEnglishTranslation.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     Text(
-                        text = ayah.textUrduTranslation,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = if (isDark) Color(0xFF6EE7B7) else Color(0xFF065F46),
-                        textAlign = TextAlign.Right,
-                        lineHeight = 22.sp,
+                        text = ayah.textEnglishTranslation,
+                        fontSize = 13.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Left,
+                        lineHeight = 20.sp,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -1744,6 +1915,10 @@ private fun DockedAudioPlayer(
 @Composable
 private fun TafsirDialog(
     ayah: AyahEntity,
+    commentary: String?,
+    isLoading: Boolean,
+    errorMessage: String?,
+    onRetry: () -> Unit,
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -1767,7 +1942,7 @@ private fun TafsirDialog(
                 ) {
                     Column {
                         Text(
-                            text = "Tafsir Ibn Kathir",
+                            text = "Tafsir al-Muyassar",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -1805,18 +1980,40 @@ private fun TafsirDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "Authentic Commentary:",
+                    text = "Arabic commentary:",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = ayah.tafsirIbnKathir,
-                    fontSize = 13.5.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 20.sp
-                )
+                when {
+                    isLoading -> CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(12.dp)
+                    )
+                    commentary != null -> CompositionLocalProvider(
+                        LocalLayoutDirection provides LayoutDirection.Rtl
+                    ) {
+                        Text(
+                            text = commentary,
+                            modifier = Modifier.fillMaxWidth(),
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 22.sp,
+                            textAlign = TextAlign.Right
+                        )
+                    }
+                    else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = errorMessage ?: "Tafsir is not available offline. Connect to the internet and retry.",
+                            fontSize = 13.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        androidx.compose.material3.TextButton(onClick = onRetry) {
+                            Text("Retry")
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 

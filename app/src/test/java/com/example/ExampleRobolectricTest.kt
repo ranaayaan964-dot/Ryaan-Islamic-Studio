@@ -100,4 +100,31 @@ class ExampleRobolectricTest {
     assertNull(afterLogout?.sessionToken)
     assertNull(userDao.getActiveSession())
   }
+
+  @Test
+  fun `multiple accounts keep only the selected account active`() = runBlocking {
+    userDao.insertUser(
+      UserEntity(
+        id = 1L,
+        username = "first",
+        email = "first@example.com",
+        isLoggedIn = false
+      )
+    )
+    userDao.insertUser(
+      UserEntity(
+        id = 2L,
+        username = "second",
+        email = "second@example.com",
+        firebaseUid = "firebase-second",
+        isLoggedIn = true
+      )
+    )
+
+    userDao.logoutOtherUsers(activeUserId = 2L)
+
+    assertEquals("second", userDao.getCurrentUser()?.username)
+    assertEquals(1, userDao.getActiveSessionCount())
+    assertFalse(userDao.getUserByUsername("first")?.isLoggedIn == true)
+  }
 }

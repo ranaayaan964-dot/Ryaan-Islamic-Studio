@@ -15,7 +15,8 @@ data class QariProfile(
     val title: String,
     val style: String,
     val flag: String,
-    val baseUrl: String
+    val baseUrl: String,
+    val ayahFolder: String
 )
 
 object QariCatalog {
@@ -27,7 +28,8 @@ object QariCatalog {
             title = "World Renowned Reciter",
             style = "Murattal",
             flag = "🇰🇼",
-            baseUrl = "https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/"
+            baseUrl = "https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/",
+            ayahFolder = "Alafasy_128kbps"
         ),
         QariProfile(
             id = QariId.ABDUL_BASIT,
@@ -36,7 +38,8 @@ object QariCatalog {
             title = "Golden Voice of Egypt",
             style = "Murattal",
             flag = "🇪🇬",
-            baseUrl = "https://download.quranicaudio.com/quran/abdul_baasit_murattal/"
+            baseUrl = "https://download.quranicaudio.com/quran/abdul_baasit_murattal/",
+            ayahFolder = "Abdul_Basit_Murattal_192kbps"
         ),
         QariProfile(
             id = QariId.AL_MUAIQLY,
@@ -45,7 +48,8 @@ object QariCatalog {
             title = "Imam of Masjid Al-Haram",
             style = "Haramain Makkah",
             flag = "🇸🇦",
-            baseUrl = "https://download.quranicaudio.com/quran/maher_almu3aiqly/year1440/"
+            baseUrl = "https://download.quranicaudio.com/quran/maher_almu3aiqly/year1440/",
+            ayahFolder = "MaherAlMuaiqly128kbps"
         ),
         QariProfile(
             id = QariId.AL_GHAMDI,
@@ -54,7 +58,8 @@ object QariCatalog {
             title = "Soulful & Emotional",
             style = "Murattal",
             flag = "🇸🇦",
-            baseUrl = "https://download.quranicaudio.com/quran/sa3d_al-ghaamidee/complete/"
+            baseUrl = "https://download.quranicaudio.com/quran/sa3d_al-ghaamidee/complete/",
+            ayahFolder = "Ghamadi_40kbps"
         ),
         QariProfile(
             id = QariId.AL_MINSHAWI,
@@ -63,7 +68,8 @@ object QariCatalog {
             title = "Master of Tajweed",
             style = "Murattal",
             flag = "🇪🇬",
-            baseUrl = "https://download.quranicaudio.com/quran/muhammad_siddeeq_al-minshaawee/"
+            baseUrl = "https://download.quranicaudio.com/quran/muhammad_siddeeq_al-minshaawee/",
+            ayahFolder = "Minshawy_Murattal_128kbps"
         )
     )
 
@@ -75,5 +81,11 @@ object QariCatalog {
         val qari = getQariById(qariId)
         val formatted = String.format(java.util.Locale.US, "%03d.mp3", surahId)
         return "${qari.baseUrl}$formatted"
+    }
+
+    fun getAyahAudioUrl(qariId: QariId, surahId: Int, ayahNumber: Int): String {
+        val qari = getQariById(qariId)
+        val fileName = String.format(java.util.Locale.US, "%03d%03d.mp3", surahId, ayahNumber)
+        return "https://everyayah.com/data/${qari.ayahFolder}/$fileName"
     }
 }

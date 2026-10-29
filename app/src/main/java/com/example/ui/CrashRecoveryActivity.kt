@@ -223,7 +223,7 @@ fun CrashRecoveryScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "Alhamdulillah, Ryaan Islamic Studio protected your session and intercepted an unexpected runtime delay.",
+                text = "Alhamdulillah, Ayaan Islamic Studio protected your session and intercepted an unexpected runtime delay.",
                 fontSize = 14.sp,
                 color = CharcoalSecondary,
                 textAlign = TextAlign.Center,
@@ -272,7 +272,7 @@ fun CrashRecoveryScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Restart Ryaan Islamic Studio",
+                            text = "Restart Ayaan Islamic Studio",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = CharcoalPrimary

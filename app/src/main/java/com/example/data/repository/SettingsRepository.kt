@@ -41,7 +41,7 @@ class SettingsRepository(private val context: Context) {
         preferences[KEY_IS_LOGGED_IN] ?: false
     }
 
-    suspend fun setLoggedIn(loggedIn: Boolean, userName: String = "Ryaan") {
+    suspend fun setLoggedIn(loggedIn: Boolean, userName: String = "Ayaan") {
         dataStore.edit { preferences ->
             preferences[KEY_IS_LOGGED_IN] = loggedIn
             preferences[KEY_USER_NAME] = userName

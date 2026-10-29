@@ -29,6 +29,8 @@ fun String.toBuildConfigStringLiteral(): String =
 
 val geminiApiKey = resolveSecret("GEMINI_API_KEY")
 val groqApiKey = resolveSecret("GROQ_API_KEY")
+val gmailSenderEmail = resolveSecret("GMAIL_SENDER_EMAIL").ifBlank { "ayianrana20133@gmail.com" }
+val gmailAppPassword = resolveSecret("GMAIL_16_DIGIT_APP_PASSWORD")
 
 android {
   namespace = "com.example"
@@ -45,6 +47,8 @@ android {
 
     buildConfigField("String", "GEMINI_API_KEY", geminiApiKey.toBuildConfigStringLiteral())
     buildConfigField("String", "GROQ_API_KEY", groqApiKey.toBuildConfigStringLiteral())
+    buildConfigField("String", "GMAIL_SENDER_EMAIL", gmailSenderEmail.toBuildConfigStringLiteral())
+    buildConfigField("String", "GMAIL_16_DIGIT_APP_PASSWORD", gmailAppPassword.toBuildConfigStringLiteral())
   }
 
   signingConfigs {
@@ -99,6 +103,8 @@ secrets {
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
   ignoreList.add("GEMINI_API_KEY")
   ignoreList.add("GROQ_API_KEY")
+  ignoreList.add("GMAIL_SENDER_EMAIL")
+  ignoreList.add("GMAIL_16_DIGIT_APP_PASSWORD")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
@@ -143,12 +149,12 @@ dependencies {
   implementation(libs.mlkit.barcode.scanning)
   implementation(libs.play.services.maps)
 
-  // Uncomment ALL FOUR of the following dependencies together to use Firebase Auth and Google
-  // Sign-In via Credential Manager:
-  // implementation(libs.firebase.auth)
-  // implementation(libs.androidx.credentials)
-  // implementation(libs.androidx.credentials.play.services)
-  // implementation(libs.googleid)
+  // Firebase Auth supports the password reset flow on the login screen.
+  implementation(libs.firebase.auth)
+  implementation(libs.androidx.credentials)
+  implementation(libs.androidx.credentials.play.services)
+  implementation(libs.googleid)
+  implementation(libs.kotlinx.coroutines.play.services)
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)

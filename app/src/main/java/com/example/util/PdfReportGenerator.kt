@@ -198,7 +198,7 @@ object PdfReportGenerator {
         // 2. HEADER SECTION
         canvas.drawText("بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ", pageWidth / 2f, y, bismillahPaint)
         y += 20f
-        canvas.drawText("RYAAN ISLAMIC STUDIO • SHARIAH AUDIT & COMPLIANCE BOARD", pageWidth / 2f, y, orgPaint)
+        canvas.drawText("AYAAN ISLAMIC STUDIO • SHARIAH AUDIT & COMPLIANCE BOARD", pageWidth / 2f, y, orgPaint)
         y += 22f
         canvas.drawText("OFFICIAL ZAKAT AL-MAL ASSESSMENT CERTIFICATE", pageWidth / 2f, y, titlePaint)
         y += 14f
@@ -450,7 +450,7 @@ object PdfReportGenerator {
         }
         canvas.drawText("★ SHARIAH COMPLIANT ★", sealCenterX, sealCenterY - 24f, sealText)
         canvas.drawText("AAOIFI STANDARD 9", sealCenterX, sealCenterY + 22f, sealText)
-        canvas.drawText("RYAAN ISLAMIC STUDIO", sealCenterX, sealCenterY + 30f, sealText)
+        canvas.drawText("AYAAN ISLAMIC STUDIO", sealCenterX, sealCenterY + 30f, sealText)
 
         y += 114f
 
@@ -464,7 +464,7 @@ object PdfReportGenerator {
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
             isAntiAlias = true
         }
-        canvas.drawText("This certificate represents a formal mathematical calculation based on user-provided values. Generated via Ryaan Islamic Studio.", 38f, y, footerPaint)
+        canvas.drawText("This certificate represents a formal mathematical calculation based on user-provided values. Generated via Ayaan Islamic Studio.", 38f, y, footerPaint)
         y += 10f
         canvas.drawText("Electronic verification hash: ${data.hashCode().toUInt().toString(16).uppercase(Locale.US)} • All Rights Reserved © 2026", 38f, y, footerPaint)
 
@@ -577,7 +577,7 @@ object PdfReportGenerator {
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "application/pdf"
                     putExtra(Intent.EXTRA_STREAM, fileUri)
-                    putExtra(Intent.EXTRA_SUBJECT, "Zakat Assessment Certificate - Ryaan Islamic Studio")
+                    putExtra(Intent.EXTRA_SUBJECT, "Zakat Assessment Certificate - Ayaan Islamic Studio")
                     putExtra(Intent.EXTRA_TEXT, "Official Zakat Assessment Certificate calculated in accordance with AAOIFI Standard No. 9.")
                     flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
                 }

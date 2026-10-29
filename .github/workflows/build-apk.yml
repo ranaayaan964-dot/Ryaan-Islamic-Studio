@@ -1,46 +1,47 @@
-name: Build Debug APK
+﻿name: Build Debug APK
 
 on:
-push:
-branches:
-- main
-workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-build:
-name: Build Android APK
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  - name: Set up JDK 17
-    uses: actions/setup-java@v4
-    with:
-      java-version: '17'
-      distribution: 'temurin'
-      cache: gradle
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
 
-  - name: Setup Gradle Environment
-    uses: gradle/actions/setup-gradle@v4
-    with:
-      gradle-version: '8.11.1'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-  - name: Ensure Gradle Wrapper Exists
-    run: |
-      if [ ! -f "gradlew" ] || [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -f "gradle/wrapper/gradle-wrapper.properties" ]; then
-        echo "Generating Gradle wrapper..."
-        gradle wrapper --gradle-version 8.11.1 --distribution-type bin
-      fi
-      chmod +x gradlew
+      - name: Accept Android SDK Licenses
+        run: yes | sdkmanager --licenses || true
 
-  - name: Build Debug APK
-    run: ./gradlew assembleDebug -PGEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" -PGROQ_API_KEY="${{ secrets.GROQ_API_KEY }}" --stacktrace --no-daemon
+      - name: Setup Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
 
-  - name: Upload Debug APK Artifact
-    uses: actions/upload-artifact@v4
-    with:
-      name: Ryaan-Islamic-Studio-v1.1.0-debug
-      path: app/build/outputs/apk/debug/app-debug.apk
-      if-no-files-found: error
+      - name: Build Debug APK with Secrets
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GMAIL_SENDER_EMAIL: ${{ secrets.GMAIL_SENDER_EMAIL }}
+          GMAIL_16_DIGIT_APP_PASSWORD: ${{ secrets.GMAIL_16_DIGIT_APP_PASSWORD }}
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ayaan-Islamic-Studio-v1.1.0-debug
+          path: app/build/outputs/apk/debug/app-debug.apk

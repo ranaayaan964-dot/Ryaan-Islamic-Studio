@@ -276,9 +276,9 @@ fun UpdateDialog(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Exact Message requested:
-                // "Version [tag_name] of Ryaan Islamic Studio is now available! Please update to get the latest features and bug fixes."
+                // "Version [tag_name] of Ayaan Islamic Studio is now available! Please update to get the latest features and bug fixes."
                 Text(
-                    text = "Version $newVersionName of Ryaan Islamic Studio is now available! Please update to get the latest features and bug fixes.",
+                    text = "Version $newVersionName of Ayaan Islamic Studio is now available! Please update to get the latest features and bug fixes.",
                     fontSize = 14.5.sp,
                     fontWeight = FontWeight.Medium,
                     color = CharcoalSecondary,

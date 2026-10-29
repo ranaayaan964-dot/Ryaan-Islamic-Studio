@@ -707,6 +707,7 @@ fun AiCompanionScreen() {
             confirmButton = {
                 TextButton(
                     onClick = {
+                        messages.clear()
                         scope.launch(Dispatchers.IO) {
                             appDb.chatDao().clearHistory()
                         }

@@ -20,7 +20,7 @@ data class UserEntity(
     val passwordHash: String = "",
 
     @ColumnInfo(name = "full_name")
-    val fullName: String = "Ryaan Usman",
+    val fullName: String = "Ayaan User",
 
     @ColumnInfo(name = "email")
     val email: String = "ranaayaan964@gmail.com",
@@ -35,5 +35,8 @@ data class UserEntity(
     val loginTimestamp: Long = System.currentTimeMillis(),
 
     @ColumnInfo(name = "role")
-    val role: String = "Administrator"
+    val role: String = "User",
+
+    @ColumnInfo(name = "firebase_uid", defaultValue = "''")
+    val firebaseUid: String = ""
 )

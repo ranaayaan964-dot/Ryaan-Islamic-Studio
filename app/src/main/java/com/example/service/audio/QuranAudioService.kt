@@ -70,6 +70,9 @@ class QuranAudioService : Service() {
     private val _activeSurahIdFlow = MutableStateFlow(1)
     val activeSurahIdFlow: StateFlow<Int> = _activeSurahIdFlow.asStateFlow()
 
+    private val _activeAyahNumberFlow = MutableStateFlow(-1)
+    val activeAyahNumberFlow: StateFlow<Int> = _activeAyahNumberFlow.asStateFlow()
+
     private val _activeSurahNameFlow = MutableStateFlow("Al-Fatihah")
     val activeSurahNameFlow: StateFlow<String> = _activeSurahNameFlow.asStateFlow()
 
@@ -97,6 +100,7 @@ class QuranAudioService : Service() {
     private var sleepTimerJob: Job? = null
     private var stopOnSurahEnd = false
     private var remainingLoopCount = 0
+    private var activeAyahTotal = 0
 
     inner class QuranAudioBinder : Binder() {
         fun getService(): QuranAudioService = this@QuranAudioService
@@ -171,7 +175,9 @@ class QuranAudioService : Service() {
                                 _currentPositionMsFlow.value = 0L
                                 stopProgressTracker()
 
-                                if (stopOnSurahEnd) {
+                                if (_activeAyahNumberFlow.value > 0) {
+                                    advanceAyahPlayback()
+                                } else if (stopOnSurahEnd) {
                                     stopAudio()
                                     stopOnSurahEnd = false
                                     _sleepTimerSecondsFlow.value = null
@@ -223,6 +229,7 @@ class QuranAudioService : Service() {
         startPositionMs: Long = 0L
     ) {
         val clampedSurahId = surahId.coerceIn(1, 114)
+        _activeAyahNumberFlow.value = -1
         _activeSurahIdFlow.value = clampedSurahId
         _activeSurahNameFlow.value = surahName
 
@@ -285,6 +292,83 @@ class QuranAudioService : Service() {
         playSurah(surahId, surahName, audioUrl, startPositionMs)
     }
 
+    fun playAyah(
+        surahId: Int,
+        surahName: String,
+        ayahNumber: Int,
+        totalAyahs: Int,
+        qariId: QariId
+    ) {
+        val surah = surahId.coerceIn(1, 114)
+        val total = totalAyahs.takeIf { it > 0 }
+            ?: QuranJsonApi.ALL_114_SURAHS.firstOrNull { it.number == surah }?.numberOfAyahs
+            ?: 0
+        _activeSurahIdFlow.value = surah
+        _activeSurahNameFlow.value = surahName
+        QuranJsonApi.ALL_114_SURAHS.firstOrNull { it.number == surah }?.let {
+            _activeSurahArabicFlow.value = it.name
+        }
+        _activeQariFlow.value = qariId
+        _activeAyahNumberFlow.value = ayahNumber.coerceIn(1, total.coerceAtLeast(1))
+        activeAyahTotal = total
+        _loopingAyahFlow.value = null
+        _repeatModeFlow.value = HifzRepeatMode.OFF
+        remainingLoopCount = 0
+        playAyahTrack(surah, ayahNumber.coerceIn(1, total.coerceAtLeast(1)), surahName, qariId)
+    }
+
+    private fun advanceAyahPlayback() {
+        val surahId = _activeSurahIdFlow.value
+        val ayahNumber = _activeAyahNumberFlow.value
+        if (_repeatModeFlow.value != HifzRepeatMode.OFF && remainingLoopCount > 0) {
+            if (_repeatModeFlow.value != HifzRepeatMode.REPEAT_INFINITE) remainingLoopCount--
+            playAyahTrack(surahId, ayahNumber, _activeSurahNameFlow.value, _activeQariFlow.value)
+            return
+        }
+
+        if (ayahNumber < activeAyahTotal) {
+            playAyahTrack(surahId, ayahNumber + 1, _activeSurahNameFlow.value, _activeQariFlow.value)
+            return
+        }
+
+        if (stopOnSurahEnd || surahId == 114) {
+            stopAudio()
+            stopOnSurahEnd = false
+            _sleepTimerSecondsFlow.value = null
+            return
+        }
+
+        val nextSurahId = surahId + 1
+        val nextSurah = QuranJsonApi.ALL_114_SURAHS.first { it.number == nextSurahId }
+        activeAyahTotal = nextSurah.numberOfAyahs
+        playAyahTrack(nextSurahId, 1, nextSurah.englishName, _activeQariFlow.value)
+    }
+
+    private fun playAyahTrack(surahId: Int, ayahNumber: Int, surahName: String, qariId: QariId) {
+        _activeSurahIdFlow.value = surahId
+        _activeSurahNameFlow.value = surahName
+        _activeAyahNumberFlow.value = ayahNumber
+        val qari = QariCatalog.getQariById(qariId)
+        val metadata = MediaMetadata.Builder()
+            .setTitle("Surah $surahName • Ayah $ayahNumber")
+            .setArtist(qari.nameEnglish)
+            .setAlbumTitle("Noble Quran Recitation")
+            .build()
+        exoPlayer?.let { player ->
+            player.stop()
+            player.setMediaItem(
+                MediaItem.Builder()
+                    .setUri(Uri.parse(QariCatalog.getAyahAudioUrl(qariId, surahId, ayahNumber)))
+                    .setMediaMetadata(metadata)
+                    .build()
+            )
+            player.prepare()
+            player.setPlaybackSpeed(_playbackSpeedFlow.value)
+            player.play()
+            startServiceForeground()
+        }
+    }
+
     fun playNextSurah() {
         val nextId = (_activeSurahIdFlow.value % 114) + 1
         val nextInfo = QuranJsonApi.ALL_114_SURAHS.firstOrNull { it.number == nextId }
@@ -309,17 +393,11 @@ class QuranAudioService : Service() {
         _activeQariFlow.value = qariId
         _repeatModeFlow.value = repeatMode
         _loopingAyahFlow.value = ayah
+        _activeAyahNumberFlow.value = ayah.verseNumber
+        activeAyahTotal = QuranJsonApi.ALL_114_SURAHS
+            .firstOrNull { it.number == surahId }?.numberOfAyahs ?: 0
         remainingLoopCount = if (repeatMode.loopCount == -1) Int.MAX_VALUE else repeatMode.loopCount
-
-        val currentSurah = _activeSurahIdFlow.value
-        if (currentSurah != surahId || exoPlayer?.playbackState == Player.STATE_IDLE) {
-            playSurahWithQari(surahId, surahName, qariId, ayah.audioStartTimeMs)
-        } else {
-            seekTo(ayah.audioStartTimeMs)
-            if (exoPlayer?.isPlaying != true) {
-                exoPlayer?.play()
-            }
-        }
+        playAyahTrack(surahId, ayah.verseNumber, surahName, qariId)
     }
 
     fun setRepeatMode(mode: HifzRepeatMode, ayah: AyahEntity? = null) {
@@ -377,6 +455,7 @@ class QuranAudioService : Service() {
         _isBufferingFlow.value = false
         _currentPositionMsFlow.value = 0L
         _loopingAyahFlow.value = null
+        _activeAyahNumberFlow.value = -1
         stopProgressTracker()
         stopForeground(STOP_FOREGROUND_REMOVE)
     }

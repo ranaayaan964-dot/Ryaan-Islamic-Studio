@@ -16,19 +16,19 @@ interface UserDao {
     /**
      * Retrieves the primary user profile and credentials.
      */
-    @Query("SELECT * FROM users WHERE id = 1 LIMIT 1")
+    @Query("SELECT * FROM users ORDER BY is_logged_in DESC, login_timestamp DESC LIMIT 1")
     suspend fun getCurrentUser(): UserEntity?
 
     /**
      * Reactive stream observing the current user profile and session state.
      */
-    @Query("SELECT * FROM users WHERE id = 1 LIMIT 1")
+    @Query("SELECT * FROM users ORDER BY is_logged_in DESC, login_timestamp DESC LIMIT 1")
     fun getCurrentUserFlow(): Flow<UserEntity?>
 
     /**
      * Retrieves the active logged-in user session, or null if no session is active.
      */
-    @Query("SELECT * FROM users WHERE is_logged_in = 1 LIMIT 1")
+    @Query("SELECT * FROM users WHERE is_logged_in = 1 ORDER BY login_timestamp DESC LIMIT 1")
     suspend fun getActiveSession(): UserEntity?
 
     /**
@@ -40,8 +40,17 @@ interface UserDao {
     /**
      * Looks up a user by their username.
      */
-    @Query("SELECT * FROM users WHERE username = :username LIMIT 1")
+    @Query("SELECT * FROM users WHERE username = :username COLLATE NOCASE LIMIT 1")
     suspend fun getUserByUsername(username: String): UserEntity?
+
+    @Query("SELECT * FROM users WHERE username = :identifier COLLATE NOCASE OR email = :identifier COLLATE NOCASE LIMIT 1")
+    suspend fun getUserByUsernameOrEmail(identifier: String): UserEntity?
+
+    @Query("SELECT * FROM users WHERE firebase_uid = :firebaseUid LIMIT 1")
+    suspend fun getUserByFirebaseUid(firebaseUid: String): UserEntity?
+
+    @Query("SELECT COALESCE(MAX(id), 0) + 1 FROM users")
+    suspend fun getNextUserId(): Long
 
     /**
      * Inserts or replaces a user record (e.g., on login or credential setup).
@@ -58,8 +67,14 @@ interface UserDao {
     /**
      * Marks the current user session as logged out and invalidates session token.
      */
-    @Query("UPDATE users SET is_logged_in = 0, session_token = NULL WHERE id = 1")
+    @Query("UPDATE users SET is_logged_in = 0, session_token = NULL")
     suspend fun logout()
+
+    @Query("UPDATE users SET is_logged_in = 0, session_token = NULL WHERE id != :activeUserId")
+    suspend fun logoutOtherUsers(activeUserId: Long)
+
+    @Query("UPDATE users SET is_logged_in = 1, session_token = :sessionToken, login_timestamp = :loginTimestamp WHERE id = :userId")
+    suspend fun activateUser(userId: Long, sessionToken: String, loginTimestamp: Long)
 
     /**
      * Completely wipes stored user credentials and session data.

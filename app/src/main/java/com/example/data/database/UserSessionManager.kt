@@ -36,7 +36,7 @@ object UserSessionManager {
         context: Context,
         username: String,
         passwordHash: String = "",
-        fullName: String = "Ryaan Usman",
+        fullName: String = "Ayaan User",
         email: String = "ranaayaan964@gmail.com",
         role: String = "Administrator"
     ): UserEntity = withContext(Dispatchers.IO) {

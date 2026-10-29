@@ -107,7 +107,7 @@ fun AppVersionManagementDialog(
 
                     Column {
                         Text(
-                            text = "Ryaan Islamic Studio",
+                            text = "Ayaan Islamic Studio",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -372,7 +372,7 @@ private fun UpdateAvailableCard(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Version ${info.latestVersionName} of Ryaan Islamic Studio is now available! Please update to get the latest features and bug fixes.",
+                text = "Version ${info.latestVersionName} of Ayaan Islamic Studio is now available! Please update to get the latest features and bug fixes.",
                 fontSize = 12.sp,
                 color = Color(0xFFE2E8F0),
                 lineHeight = 17.sp

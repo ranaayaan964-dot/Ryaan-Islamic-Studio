@@ -185,16 +185,29 @@ fun NextGenDashboardScreen(
     // Auto-Silent & Tahajjud States
     val autoSilentState by AutoSilentManager.silentState.collectAsStateWithLifecycle()
     val tahajjudState by TahajjudAlarmManager.state.collectAsStateWithLifecycle()
+    var hasDndPermission by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        val hasDnd = withContext(Dispatchers.IO) {
+            AutoSilentManager.hasNotificationPolicyAccess(context)
+        }
+        hasDndPermission = hasDnd
+    }
 
     // Sync Auto-Silent switch state with system DND permission on resume
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                scope.launch(Dispatchers.IO) {
-                    val hasDnd = AutoSilentManager.hasNotificationPolicyAccess(context)
+                scope.launch {
+                    val hasDnd = withContext(Dispatchers.IO) {
+                        AutoSilentManager.hasNotificationPolicyAccess(context)
+                    }
+                    hasDndPermission = hasDnd
                     if (autoSilentState.isEnabled && !hasDnd) {
-                        AutoSilentManager.toggleEnabled(false, context)
+                        withContext(Dispatchers.IO) {
+                            AutoSilentManager.toggleEnabled(false, context)
+                        }
                     }
                 }
             }
@@ -220,7 +233,7 @@ fun NextGenDashboardScreen(
                 schedule = fetchedSchedule
                 prayerItems.clear()
                 prayerItems.addAll(items)
-                TahajjudAlarmManager.updateFajrTime(fetchedSchedule.fajr)
+                TahajjudAlarmManager.updatePrayerTimes(context, fetchedSchedule.fajr, fetchedSchedule.maghrib)
 
                 // Update continuous live countdown engine with new prayer timings and schedule
                 PrayerCountdownEngine.updatePrayers(items, fetchedSchedule)
@@ -1642,27 +1655,38 @@ fun NextGenDashboardScreen(
                             checked = autoSilentState.isEnabled,
                             onCheckedChange = { isChecked ->
                                 if (isChecked) {
-                                    val hasDnd = AutoSilentManager.hasNotificationPolicyAccess(context)
-                                    if (!hasDnd) {
-                                        Toast.makeText(
-                                            context,
-                                            "Please grant Do Not Disturb permission to allow auto-muting",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                        try {
-                                            val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).apply {
-                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Could not open DND settings: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    scope.launch {
+                                        val hasDnd = withContext(Dispatchers.IO) {
+                                            AutoSilentManager.hasNotificationPolicyAccess(context)
                                         }
-                                        AutoSilentManager.toggleEnabled(false, context)
-                                    } else {
-                                        AutoSilentManager.toggleEnabled(true, context)
+                                        hasDndPermission = hasDnd
+                                        if (!hasDnd) {
+                                            Toast.makeText(
+                                                context,
+                                                "Please grant Do Not Disturb permission to allow auto-muting",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                            try {
+                                                val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Could not open DND settings: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                            withContext(Dispatchers.IO) {
+                                                AutoSilentManager.toggleEnabled(false, context)
+                                            }
+                                        } else {
+                                            withContext(Dispatchers.IO) {
+                                                AutoSilentManager.toggleEnabled(true, context)
+                                            }
+                                        }
                                     }
                                 } else {
-                                    AutoSilentManager.toggleEnabled(false, context)
+                                    scope.launch(Dispatchers.IO) {
+                                        AutoSilentManager.toggleEnabled(false, context)
+                                    }
                                 }
                             },
                             colors = SwitchDefaults.colors(
@@ -1674,7 +1698,6 @@ fun NextGenDashboardScreen(
                         )
                     }
 
-                    val hasDndPermission = AutoSilentManager.hasNotificationPolicyAccess(context)
                     if (!hasDndPermission) {
                         Spacer(modifier = Modifier.height(10.dp))
                         Row(
@@ -1774,7 +1797,7 @@ fun NextGenDashboardScreen(
 
                         Switch(
                             checked = tahajjudState.isEnabled,
-                            onCheckedChange = { TahajjudAlarmManager.toggleAlarm(it) },
+                            onCheckedChange = { TahajjudAlarmManager.toggleAlarm(context, it) },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = GoldPrimary,
                                 checkedTrackColor = Color(0x55E5C07B),
@@ -2014,7 +2037,7 @@ fun NextGenDashboardScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "Ryaan Islamic Studio",
+                                text = "Ayaan Islamic Studio",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White

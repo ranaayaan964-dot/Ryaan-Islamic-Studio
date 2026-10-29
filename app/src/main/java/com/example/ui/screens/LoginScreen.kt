@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.util.Patterns
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -43,13 +44,16 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -77,8 +81,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.database.AppDatabase
-import com.example.data.database.UserEntity
+import com.example.security.AyaanAuthRepository
 import com.example.security.SessionManager
 import com.example.ui.components.IslamicWatermarkBackground
 import com.example.ui.components.NeumorphicCard
@@ -94,18 +97,6 @@ import com.example.ui.theme.SlateMuted
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.security.MessageDigest
-
-/**
- * MODULE 1: PEARL WHITE LUXURY ADMIN LOGIN & STRICT SESSION PERSISTENCE
- * Authorized Administrator Console Only (username: ryaan / password: 11221122).
- * Strictly removed any demo quick-access; built as a high-security Pro app portal.
- * Features signature branding: "Created by Ryaan Usman with Ryaan Studio"
- */
-private fun hashString(value: String): String {
-    val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
-    return bytes.joinToString(separator = "") { "%02x".format(it) }
-}
 
 @Composable
 fun LoginScreen(
@@ -121,6 +112,21 @@ fun LoginScreen(
     var isPasswordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var showResetDialog by remember { mutableStateOf(false) }
+    var resetEmail by remember { mutableStateOf("") }
+    var resetMessage by remember { mutableStateOf<String?>(null) }
+    var resetOtp by remember { mutableStateOf("") }
+    var resetNewPassword by remember { mutableStateOf("") }
+    var resetOtpSent by remember { mutableStateOf(false) }
+    var showGoogleFallbackDialog by remember { mutableStateOf(false) }
+    var googleFallbackName by remember { mutableStateOf("") }
+    var googleFallbackEmail by remember { mutableStateOf("") }
+    var isSendingReset by remember { mutableStateOf(false) }
+    var isSignUp by remember { mutableStateOf(false) }
+    var fullName by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var isGoogleLoading by remember { mutableStateOf(false) }
+    val authRepository = remember { AyaanAuthRepository(context) }
 
     // Read cached credentials from SessionManager and prefill TextFields on screen initialization
     LaunchedEffect(Unit) {
@@ -146,46 +152,83 @@ fun LoginScreen(
         label = "BadgeGlow"
     )
 
+    fun requestPasswordReset() {
+        val email = resetEmail.trim()
+        if (!Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            resetMessage = "Enter a valid email address."
+            return
+        }
+
+        isSendingReset = true
+        resetMessage = null
+        scope.launch {
+            val result = authRepository.sendPasswordResetOtpEmail(email)
+            isSendingReset = false
+            if (result.isSuccess) {
+                resetOtpSent = true
+                resetMessage = result.getOrNull()
+            } else {
+                resetMessage = "Could not send reset code: ${result.exceptionOrNull()?.localizedMessage ?: "try again later"}"
+            }
+        }
+    }
+
+    fun completePasswordReset() {
+        if (!resetOtp.matches(Regex("\\d{6}"))) {
+            resetMessage = "Enter the 6-digit verification code."
+            return
+        }
+        if (resetNewPassword.length < 8) {
+            resetMessage = "New password must be at least 8 characters."
+            return
+        }
+        isSendingReset = true
+        scope.launch {
+            val result = authRepository.completePasswordReset(resetEmail.trim(), resetOtp, resetNewPassword)
+            isSendingReset = false
+            resetMessage = if (result.isSuccess) {
+                "Password updated securely. You can now log in."
+            } else {
+                result.exceptionOrNull()?.localizedMessage ?: "Password reset could not be completed."
+            }
+            if (result.isSuccess) {
+                resetOtpSent = false
+                resetOtp = ""
+                resetNewPassword = ""
+            }
+        }
+    }
+
     fun performLogin() {
         focusManager.clearFocus()
         val trimmedUser = username.trim()
-        val trimmedPass = password.trim()
-        val expectedUser = "ryaan"
-        val expectedHash = hashString("11221122")
-        val suppliedHash = hashString(trimmedPass)
-
-        val isValidCredentials = trimmedUser.equals(expectedUser, ignoreCase = true) &&
-            suppliedHash == expectedHash
-
-        if (isValidCredentials) {
-            errorMessage = null
-            isLoading = true
-
-            scope.launch {
-                withContext(Dispatchers.IO) {
-                    val sessionManager = SessionManager.getInstance(context)
-                    sessionManager.saveCredentials(trimmedUser.lowercase(), trimmedPass, rememberMe)
-
-                    val appDb = AppDatabase.getInstance(context)
-                    appDb.userDao().insertUser(
-                        UserEntity(
-                            id = 1L,
-                            username = trimmedUser.lowercase(),
-                            passwordHash = expectedHash,
-                            fullName = "Ryaan Usman (System Administrator)",
-                            email = "ranaayaan964@gmail.com",
-                            sessionToken = "session_${System.currentTimeMillis()}",
-                            isLoggedIn = true,
-                            loginTimestamp = System.currentTimeMillis()
-                        )
-                    )
-                    com.example.data.repository.SettingsRepository.getInstance(context).setLoggedIn(true, trimmedUser.lowercase())
-                }
-                isLoading = false
-                onLoginSuccess()
+        val trimmedPass = password
+        isLoading = true
+        errorMessage = null
+        scope.launch {
+            val result = if (isSignUp) {
+                authRepository.signUpWithEmail(fullName, trimmedUser, email, trimmedPass, rememberMe)
+            } else {
+                authRepository.loginWithEmailOrUsername(trimmedUser, trimmedPass, rememberMe)
             }
-        } else {
-            errorMessage = "ACCESS DENIED: Unauthorized credentials. This portal is strictly restricted to authorized Administrator access."
+            isLoading = false
+            result.onSuccess { onLoginSuccess() }
+                .onFailure { errorMessage = it.localizedMessage ?: "Authentication failed. Please try again." }
+        }
+    }
+
+    fun performGoogleSignIn() {
+        isGoogleLoading = true
+        errorMessage = null
+        scope.launch {
+            val result = authRepository.signInWithGoogle(context, rememberMe)
+            isGoogleLoading = false
+            result.onSuccess { onLoginSuccess() }
+                .onFailure {
+                    googleFallbackName = fullName.ifBlank { "Ayaan User" }
+                    googleFallbackEmail = email
+                    showGoogleFallbackDialog = true
+                }
         }
     }
 
@@ -234,7 +277,7 @@ fun LoginScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Created by Ryaan Usman with Ryaan Studio",
+                        text = "Created by Ayaan with Ayaan Studio",
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Serif,
@@ -283,7 +326,7 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "NOBLE PRAYER PRO",
+                text = "AYAAN ISLAMIC STUDIO",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.ExtraBold,
                 fontFamily = FontFamily.Serif,
@@ -333,13 +376,41 @@ fun LoginScreen(
                         .fillMaxWidth()
                         .padding(24.dp)
                 ) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        TextButton(
+                            onClick = {
+                                isSignUp = false
+                                errorMessage = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "LOG IN",
+                                color = if (!isSignUp) DeepRoyalEmerald else SlateMuted,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                isSignUp = true
+                                errorMessage = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "CREATE ACCOUNT",
+                                color = if (isSignUp) DeepRoyalEmerald else SlateMuted,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "ADMINISTRATOR LOGIN",
+                            text = if (isSignUp) "CREATE YOUR AYAAN ACCOUNT" else "ACCOUNT LOGIN",
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = PlatinumGold,
@@ -354,15 +425,51 @@ fun LoginScreen(
                     }
 
                     Text(
-                        text = "Authorized administrator credentials required for system access",
+                        text = if (isSignUp) "Create a personal account with Firebase Authentication"
+                            else "Sign in with your email or username",
                         fontSize = 11.sp,
                         color = SlateMuted,
                         modifier = Modifier.padding(top = 4.dp, bottom = 18.dp)
                     )
 
-                    // Admin Username Input
+                    if (isSignUp) {
+                        Text(
+                            text = "FULL NAME",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CharcoalPrimary,
+                            letterSpacing = 0.8.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = fullName,
+                            onValueChange = { fullName = it; errorMessage = null },
+                            placeholder = { Text("Your name", fontSize = 13.sp, color = SlateMuted) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("full_name_input")
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "EMAIL ADDRESS",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CharcoalPrimary,
+                            letterSpacing = 0.8.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = { email = it; errorMessage = null },
+                            placeholder = { Text("name@example.com", fontSize = 13.sp, color = SlateMuted) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            modifier = Modifier.fillMaxWidth().testTag("email_input")
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
                     Text(
-                        text = "ADMIN USERNAME",
+                        text = if (isSignUp) "USERNAME" else "EMAIL OR USERNAME",
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = CharcoalPrimary,
@@ -375,7 +482,13 @@ fun LoginScreen(
                             username = it
                             errorMessage = null
                         },
-                        placeholder = { Text("Enter admin username", fontSize = 13.sp, color = SlateMuted) },
+                        placeholder = {
+                            Text(
+                                if (isSignUp) "Choose a username" else "Enter email or username",
+                                fontSize = 13.sp,
+                                color = SlateMuted
+                            )
+                        },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Person,
@@ -408,7 +521,7 @@ fun LoginScreen(
 
                     // Admin Password Input
                     Text(
-                        text = "ADMIN PASSWORD",
+                        text = "PASSWORD",
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = CharcoalPrimary,
@@ -421,7 +534,7 @@ fun LoginScreen(
                             password = it
                             errorMessage = null
                         },
-                        placeholder = { Text("Enter security password", fontSize = 13.sp, color = SlateMuted) },
+                        placeholder = { Text("Enter password", fontSize = 13.sp, color = SlateMuted) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Lock,
@@ -460,6 +573,25 @@ fun LoginScreen(
                             .fillMaxWidth()
                             .testTag("password_input")
                     )
+
+                    if (!isSignUp) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    resetEmail = username.trim().takeIf { it.contains("@") }.orEmpty()
+                                    resetMessage = null
+                                    showResetDialog = true
+                                },
+                                enabled = !isLoading,
+                                modifier = Modifier.testTag("forgot_password_button")
+                            ) {
+                                Text("Forgot password?")
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
@@ -531,7 +663,7 @@ fun LoginScreen(
                     // Authenticate Button
                     Button(
                         onClick = { performLogin() },
-                        enabled = !isLoading,
+                        enabled = !isLoading && !isGoogleLoading,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp)
@@ -555,19 +687,177 @@ fun LoginScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = if (isLoading) "Verifying Credentials..." else "AUTHENTICATE AS ADMIN",
+                                text = if (isLoading) "Please wait..."
+                                    else if (isSignUp) "CREATE ACCOUNT"
+                                    else "SIGN IN",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.sp
                             )
                         }
                     }
+
+                    if (!isSignUp) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { performGoogleSignIn() },
+                            enabled = !isLoading && !isGoogleLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("google_sign_in_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFF8FAFC),
+                                contentColor = CharcoalPrimary
+                            )
+                        ) {
+                            Text(
+                                text = if (isGoogleLoading) "Opening Google account picker..." else "Continue with Google",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                if (showGoogleFallbackDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showGoogleFallbackDialog = false },
+                        title = { Text("Continue with Google Account") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("Enter the Google account details to sync this device with Ayaan Islamic Studio.")
+                                OutlinedTextField(
+                                    value = googleFallbackName,
+                                    onValueChange = { googleFallbackName = it },
+                                    label = { Text("Google name") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                OutlinedTextField(
+                                    value = googleFallbackEmail,
+                                    onValueChange = { googleFallbackEmail = it },
+                                    label = { Text("Gmail address") },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                isGoogleLoading = true
+                                scope.launch {
+                                    val result = authRepository.signInWithGoogleEmailFallback(
+                                        googleFallbackName,
+                                        googleFallbackEmail,
+                                        rememberMe
+                                    )
+                                    isGoogleLoading = false
+                                    if (result.isSuccess) {
+                                        showGoogleFallbackDialog = false
+                                        onLoginSuccess()
+                                    } else {
+                                        errorMessage = result.exceptionOrNull()?.localizedMessage ?: "Google account sign-in failed."
+                                    }
+                                }
+                            }) { Text("Sign in with Google Account") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showGoogleFallbackDialog = false }) { Text("Cancel") }
+                        }
+                    )
+                }
+
+                if (showResetDialog) {
+                    AlertDialog(
+                        onDismissRequest = { if (!isSendingReset) showResetDialog = false },
+                        title = { Text("Reset password") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("Enter the email address for your Firebase account.")
+                                OutlinedTextField(
+                                    value = resetEmail,
+                                    onValueChange = {
+                                        resetEmail = it
+                                        resetMessage = null
+                                    },
+                                    label = { Text("Email address") },
+                                    singleLine = true,
+                                    enabled = !isSendingReset,
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Email,
+                                        imeAction = ImeAction.Done
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("password_reset_email_input")
+                                )
+                                Text(
+                                    text = "A Firebase reset link and native Gmail verification code will be used when SMTP is configured.",
+                                    fontSize = 12.sp,
+                                    color = SlateMuted
+                                )
+                                AnimatedVisibility(visible = resetOtpSent) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        OutlinedTextField(
+                                            value = resetOtp,
+                                            onValueChange = { resetOtp = it.filter(Char::isDigit).take(6); resetMessage = null },
+                                            label = { Text("6-digit verification code") },
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        OutlinedTextField(
+                                            value = resetNewPassword,
+                                            onValueChange = { resetNewPassword = it; resetMessage = null },
+                                            label = { Text("New password") },
+                                            singleLine = true,
+                                            visualTransformation = PasswordVisualTransformation(),
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                                resetMessage?.let { message ->
+                                    Text(
+                                        text = message,
+                                        fontSize = 13.sp,
+                                        color = if (message.contains("sent", ignoreCase = true) || message.contains("updated", ignoreCase = true)) DeepRoyalEmerald else CrimsonError
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = { if (resetOtpSent) completePasswordReset() else requestPasswordReset() },
+                                enabled = !isSendingReset
+                            ) {
+                                if (isSendingReset) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Text(if (resetOtpSent) "Verify & update password" else "Send reset code")
+                                }
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = { showResetDialog = false },
+                                enabled = !isSendingReset
+                            ) {
+                                Text("Close")
+                            }
+                        }
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Footer Signature Card: "Ryaan Usman created this with Ryaan Studio"
+            // Footer Signature Card: "Ayaan created this with Ayaan Studio"
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(16.dp))
@@ -587,7 +877,7 @@ fun LoginScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Ryaan Usman created this with Ryaan Studio",
+                        text = "Ayaan created this with Ayaan Studio",
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Serif,

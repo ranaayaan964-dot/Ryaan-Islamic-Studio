@@ -83,6 +83,13 @@ import kotlinx.coroutines.withContext
  * When user explicitly clicks "Logout", sets is_logged_in = false
  * BUT keeps the cached_username so next time they only have to enter their password.
  */
+private data class ProfileState(
+    val fullName: String,
+    val role: String,
+    val username: String,
+    val rememberMe: Boolean
+)
+
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
@@ -92,16 +99,24 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val glassTheme = LocalGlassTheme.current
     var cachedUsername by remember { mutableStateOf("") }
+    var profileFullName by remember { mutableStateOf("Ayaan") }
+    var profileRole by remember { mutableStateOf("System Administrator") }
     var isRememberMe by remember { mutableStateOf(true) }
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        val (username, rememberMe) = withContext(Dispatchers.IO) {
+        val profile = withContext(Dispatchers.IO) {
             val sessionManager = SessionManager.getInstance(context)
-            sessionManager.getCachedUsername().ifBlank { "ryaan" } to sessionManager.isRememberMe()
+            val user = AppDatabase.getInstance(context).userDao().getCurrentUser()
+            val username = user?.username?.ifBlank { sessionManager.getCachedUsername() }?.ifBlank { "ayaan" } ?: "ayaan"
+            val fullName = user?.fullName?.ifBlank { "Ayaan" } ?: "Ayaan"
+            val role = user?.role?.ifBlank { "System Administrator" } ?: "System Administrator"
+            ProfileState(fullName, role, username, sessionManager.isRememberMe())
         }
-        cachedUsername = username
-        isRememberMe = rememberMe
+        profileFullName = profile.fullName
+        profileRole = profile.role
+        cachedUsername = profile.username
+        isRememberMe = profile.rememberMe
     }
 
     val handleLogoutClick: () -> Unit = {
@@ -212,19 +227,19 @@ fun SettingsScreen(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Ryaan Usman",
+                                text = profileFullName.ifBlank { "Ayaan" },
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = CharcoalPrimary
                             )
                             Text(
-                                text = "System Administrator",
+                                text = profileRole.ifBlank { "System Administrator" },
                                 fontSize = 12.sp,
                                 color = DeepRoyalEmerald,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "Logged in as @${cachedUsername.ifBlank { "ryaan" }}",
+                                text = "Logged in as @${cachedUsername.ifBlank { "ayaan" }}",
                                 fontSize = 11.5.sp,
                                 color = SlateMuted
                             )
@@ -341,7 +356,9 @@ fun SettingsScreen(
                             checked = isRememberMe,
                             onCheckedChange = { checked ->
                                 isRememberMe = checked
-                                sessionManager.setRememberMe(checked)
+                                scope.launch(Dispatchers.IO) {
+                                    SessionManager.getInstance(context).setRememberMe(checked)
+                                }
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = PureWhite,
@@ -446,13 +463,13 @@ fun SettingsScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Created by Ryaan Usman",
+                    text = "Created by Ayaan",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = PlatinumGold
                 )
                 Text(
-                    text = "Powered by Ryaan Studio • Enterprise Pro v3.0",
+                    text = "Powered by Ayaan Studio • Enterprise Pro v3.0",
                     fontSize = 10.5.sp,
                     color = SlateMuted
                 )
@@ -473,7 +490,7 @@ fun SettingsScreen(
             },
             text = {
                 Text(
-                    text = "You will be logged out of the Administrator console. Your username '@${cachedUsername.ifBlank { "ryaan" }}' will remain securely saved for fast re-login.",
+                    text = "You will be logged out of the Administrator console. Your username '@${cachedUsername.ifBlank { "ayaan" }}' will remain securely saved for fast re-login.",
                     fontSize = 13.sp,
                     color = SlateMuted
                 )

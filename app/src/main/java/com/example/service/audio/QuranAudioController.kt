@@ -48,6 +48,9 @@ object QuranAudioController {
     private val _activeSurahId = MutableStateFlow(1)
     val activeSurahId: StateFlow<Int> = _activeSurahId.asStateFlow()
 
+    private val _activeAyahNumber = MutableStateFlow(-1)
+    val activeAyahNumber: StateFlow<Int> = _activeAyahNumber.asStateFlow()
+
     private val _activeSurahName = MutableStateFlow("Al-Fatihah")
     val activeSurahName: StateFlow<String> = _activeSurahName.asStateFlow()
 
@@ -92,6 +95,7 @@ object QuranAudioController {
                     launch { svc.currentPositionMsFlow.collect { _currentPositionMs.value = it } }
                     launch { svc.currentDurationMsFlow.collect { _currentDurationMs.value = it } }
                     launch { svc.activeSurahIdFlow.collect { _activeSurahId.value = it } }
+                    launch { svc.activeAyahNumberFlow.collect { _activeAyahNumber.value = it } }
                     launch { svc.activeSurahNameFlow.collect { _activeSurahName.value = it } }
                     launch { svc.activeSurahArabicFlow.collect { _activeSurahArabic.value = it } }
                     launch { svc.activeQariFlow.collect { _activeQari.value = it } }
@@ -116,6 +120,9 @@ object QuranAudioController {
             _serviceConnectedFlow.value = false
             _isPlaying.value = false
             _isBuffering.value = false
+            _activeAyahNumber.value = -1
+            _currentPositionMs.value = 0L
+            _currentDurationMs.value = 0L
         }
     }
 
@@ -124,16 +131,6 @@ object QuranAudioController {
         isBinding = true
         val intent = Intent(context, QuranAudioService::class.java)
         try {
-            try {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-            } catch (startError: Exception) {
-                Log.w("QuranAudioController", "Foreground audio service start failed; trying regular start", startError)
-                context.startService(intent)
-            }
             if (!context.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
                 isBinding = false
                 Log.e("QuranAudioController", "Could not bind to Quran audio service")
@@ -159,6 +156,24 @@ object QuranAudioController {
             return
         }
         pendingAction = { audioService?.playSurahWithQari(surahId, surahName, qariId, startPositionMs) }
+        bindService(context)
+    }
+
+    fun playAyah(
+        context: Context,
+        surahId: Int,
+        surahName: String,
+        ayahNumber: Int,
+        totalAyahs: Int,
+        qariId: QariId = _activeQari.value
+    ) {
+        if (audioService != null && isBound) {
+            audioService?.playAyah(surahId, surahName, ayahNumber, totalAyahs, qariId)
+            return
+        }
+        pendingAction = {
+            audioService?.playAyah(surahId, surahName, ayahNumber, totalAyahs, qariId)
+        }
         bindService(context)
     }
 

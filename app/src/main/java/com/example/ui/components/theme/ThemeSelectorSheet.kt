@@ -185,7 +185,7 @@ fun ThemeSelectorSheet(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Crafted with Luxury Glassmorphism • Ryaan Studio",
+                    text = "Crafted with Luxury Glassmorphism • Ayaan Studio",
                     fontSize = 11.sp,
                     color = glassColors.textMuted,
                     fontWeight = FontWeight.Medium,

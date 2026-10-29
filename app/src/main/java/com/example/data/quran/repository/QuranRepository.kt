@@ -6,30 +6,21 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import com.example.data.quran.database.QuranDatabase
+import com.example.data.quran.api.QuranJsonApi
 import com.example.data.quran.model.AyahEntity
 import com.example.data.quran.model.AyahWithSurahInfo
 import com.example.data.quran.model.BookmarkEntity
+import com.example.data.quran.model.JuzCatalog
 import com.example.data.quran.model.SurahEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 class QuranRepository(context: Context) {
 
     private val db = QuranDatabase.getDatabase(context)
     private val dao = db.quranDao()
-
-    private val okHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .build()
-    }
 
     fun getAllSurahsFlow(): Flow<List<SurahEntity>> {
         return dao.getAllSurahsFlow().flowOn(Dispatchers.IO)
@@ -52,57 +43,119 @@ class QuranRepository(context: Context) {
      * AlQuran Cloud API for any of the 114 Surahs.
      */
     suspend fun getOrFetchAyahsForSurah(surahId: Int): List<AyahEntity> = withContext(Dispatchers.IO) {
+        if (surahId !in 1..114) return@withContext emptyList()
         val local = dao.getAyahsForSurah(surahId)
-        if (local.isNotEmpty()) {
+        val expectedCount = dao.getSurahById(surahId)?.totalVerses
+            ?: QuranJsonApi.ALL_114_SURAHS.firstOrNull { it.number == surahId }?.numberOfAyahs
+            ?: 0
+        if (expectedCount > 0 && local.size == expectedCount &&
+            local.all { it.textArabic.isNotBlank() && it.textUrduTranslation.isNotBlank() }
+        ) {
             return@withContext local
         }
 
-        // Fetch from api.alquran.cloud and cache into Room database
         try {
-            val url = "https://api.alquran.cloud/v1/surah/$surahId/editions/quran-uthmani,en.sahih"
-            val request = Request.Builder().url(url).build()
-            val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string()
-            if (response.isSuccessful && !body.isNullOrBlank()) {
-                val json = JSONObject(body)
-                val data = json.getJSONArray("data")
-                val uthmaniEdition = data.getJSONObject(0)
-                val englishEdition = if (data.length() > 1) data.getJSONObject(1) else null
-
-                val uthmaniAyahs = uthmaniEdition.getJSONArray("ayahs")
-                val englishAyahs = englishEdition?.getJSONArray("ayahs")
-
-                val entities = mutableListOf<AyahEntity>()
-                for (i in 0 until uthmaniAyahs.length()) {
-                    val uObj = uthmaniAyahs.getJSONObject(i)
-                    val globalNum = uObj.getInt("number")
-                    val verseNum = uObj.getInt("numberInSurah")
-                    val textArabic = uObj.getString("text")
-                    val textEnglish = englishAyahs?.optJSONObject(i)?.optString("text") ?: ""
-
-                    entities.add(
-                        AyahEntity(
-                            globalVerseNumber = globalNum,
-                            surahId = surahId,
-                            verseNumber = verseNum,
-                            textArabic = textArabic,
-                            textEnglishTranslation = textEnglish,
-                            tafsirIbnKathir = "Surah $surahId Verse $verseNum"
-                        )
+            val result = QuranJsonApi.fetchSurah(surahId)
+            val remote = result.getOrThrow()
+            val entities = remote.ayahs
+                .sortedBy { it.numberInSurah }
+                .map { ayah ->
+                    val previous = local.firstOrNull { it.verseNumber == ayah.numberInSurah }
+                    AyahEntity(
+                        globalVerseNumber = ayah.globalNumber,
+                        surahId = surahId,
+                        verseNumber = ayah.numberInSurah,
+                        textArabic = ayah.arabicText,
+                        textEnglishTranslation = ayah.englishTranslation,
+                        textUrduTranslation = ayah.urduTranslation,
+                        tafsirIbnKathir = previous?.tafsirIbnKathir.orEmpty(),
+                        audioStartTimeMs = previous?.audioStartTimeMs ?: 0L,
+                        audioEndTimeMs = previous?.audioEndTimeMs ?: 0L
                     )
                 }
-                if (entities.isNotEmpty()) {
-                    dao.insertAyahs(entities)
-                    Log.d("QuranRepository", "Successfully fetched and cached ${entities.size} ayahs for Surah $surahId into Room.")
-                    return@withContext entities
-                }
+            if (expectedCount > 0 && entities.size == expectedCount &&
+                entities.all { it.textArabic.isNotBlank() && it.textUrduTranslation.isNotBlank() }
+            ) {
+                dao.insertAyahs(entities)
+                QuranJsonApi.cacheSurah(remote)
+                Log.d("QuranRepository", "Cached ${entities.size} translated Ayahs for Surah $surahId.")
+                return@withContext entities
             }
         } catch (e: Exception) {
             Log.e("QuranRepository", "Error fetching remote Ayahs for Surah $surahId", e)
         }
 
-        // Return empty or local if any
-        return@withContext dao.getAyahsForSurah(surahId)
+        local
+    }
+
+    suspend fun getOrFetchAyahsForJuz(juzId: Int): List<AyahEntity> = withContext(Dispatchers.IO) {
+        val juz = JuzCatalog.getJuzById(juzId.coerceIn(1, 30)) ?: return@withContext emptyList()
+        val verses = mutableListOf<AyahEntity>()
+        for (surahId in juz.startSurahId..juz.endSurahId) {
+            val surahAyahs = getOrFetchAyahsForSurah(surahId)
+            val expectedCount = dao.getSurahById(surahId)?.totalVerses
+                ?: QuranJsonApi.ALL_114_SURAHS.firstOrNull { it.number == surahId }?.numberOfAyahs
+                ?: 0
+            if (expectedCount == 0 || surahAyahs.size != expectedCount ||
+                surahAyahs.any { it.textArabic.isBlank() || it.textUrduTranslation.isBlank() }
+            ) {
+                return@withContext emptyList()
+            }
+            verses += surahAyahs.filter { ayah ->
+                when {
+                    surahId == juz.startSurahId && surahId == juz.endSurahId ->
+                        ayah.verseNumber in juz.startVerse..juz.endVerse
+                    surahId == juz.startSurahId -> ayah.verseNumber >= juz.startVerse
+                    surahId == juz.endSurahId -> ayah.verseNumber <= juz.endVerse
+                    else -> true
+                }
+            }
+        }
+        verses.sortedWith(compareBy(AyahEntity::surahId, AyahEntity::verseNumber))
+    }
+
+    suspend fun cacheFetchedSurah(data: com.example.data.quran.api.SurahFullData) = withContext(Dispatchers.IO) {
+        val expected = dao.getSurahById(data.info.number)?.totalVerses ?: data.info.numberOfAyahs
+        if (data.ayahs.size != expected ||
+            data.ayahs.any { it.arabicText.isBlank() || it.urduTranslation.isBlank() }
+        ) return@withContext
+        val localByVerse = dao.getAyahsForSurah(data.info.number).associateBy { it.verseNumber }
+        dao.insertAyahs(
+            data.ayahs.sortedBy { it.numberInSurah }.map { ayah ->
+                val previous = localByVerse[ayah.numberInSurah]
+                AyahEntity(
+                    globalVerseNumber = ayah.globalNumber,
+                    surahId = data.info.number,
+                    verseNumber = ayah.numberInSurah,
+                    textArabic = ayah.arabicText,
+                    textEnglishTranslation = ayah.englishTranslation,
+                    textUrduTranslation = ayah.urduTranslation,
+                    tafsirIbnKathir = previous?.tafsirIbnKathir.orEmpty(),
+                    audioStartTimeMs = previous?.audioStartTimeMs ?: 0L,
+                    audioEndTimeMs = previous?.audioEndTimeMs ?: 0L
+                )
+            }
+        )
+        QuranJsonApi.cacheSurah(data)
+    }
+
+    suspend fun downloadFullQuranOffline(
+        onProgress: (completedSurahs: Int, totalSurahs: Int) -> Unit
+    ): Boolean = withContext(Dispatchers.IO) {
+        for (surahId in 1..114) {
+            val ayahs = getOrFetchAyahsForSurah(surahId)
+            val expected = dao.getSurahById(surahId)?.totalVerses
+                ?: QuranJsonApi.ALL_114_SURAHS.firstOrNull { it.number == surahId }?.numberOfAyahs
+                ?: 0
+            if (expected == 0 || ayahs.size != expected ||
+                ayahs.any { it.textArabic.isBlank() || it.textUrduTranslation.isBlank() }
+            ) {
+                onProgress(surahId - 1, 114)
+                return@withContext false
+            }
+            onProgress(surahId, 114)
+        }
+        true
     }
 
     fun getAyahsPaging(surahId: Int, pageSize: Int = 20): Flow<PagingData<AyahEntity>> {

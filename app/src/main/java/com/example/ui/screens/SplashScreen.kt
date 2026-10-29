@@ -78,8 +78,8 @@ import kotlin.math.sin
  * MODULE 1: CINEMATIC LUXURY SPLASH SCREEN & CREATOR BRANDING
  * - Deep luxury pulsing radial gradient
  * - Center Emblem: Glowing vector Kaaba & Crescent with particle halo
- * - App Title: "RYAAN ISLAMIC STUDIO" with metallic gold text styling
- * - Creator Signature: "Created by Ryaan Usman" & "Powered by Ryaan Studio"
+ * - App Title: "AYAAN ISLAMIC STUDIO" with metallic gold text styling
+ * - Creator Signature: "Created by Ayaan" & "Powered by Ayaan Studio"
  *   with staggered 1.2s fade-in & floating glow
  * - Exactly 5000ms - 6000ms preloading window initializing Room, DataStore & Prayer times
  */
@@ -144,7 +144,7 @@ fun SplashScreen(
 
                 hasExistingSession
         }
-        preloadStatus = "Ryaan Islamic Studio Ready"
+        preloadStatus = "Ayaan Islamic Studio Ready"
         isUserLoggedIn = loggedIn
 
         // Enforce exact 5500ms duration (within 5000ms - 6000ms requirement)
@@ -413,7 +413,7 @@ fun SplashScreen(
 
                 Spacer(modifier = Modifier.height(28.dp))
 
-                // APP TITLE: "RYAAN ISLAMIC STUDIO" with Metallic Gold Text Styling
+                // APP TITLE: "AYAAN ISLAMIC STUDIO" with Metallic Gold Text Styling
                 val metallicGoldBrush = Brush.linearGradient(
                     colors = listOf(
                         Color(0xFFFEF3C7),
@@ -427,7 +427,7 @@ fun SplashScreen(
                 )
 
                 Text(
-                    text = "RYAAN ISLAMIC STUDIO",
+                    text = "AYAAN ISLAMIC STUDIO",
                     style = TextStyle(
                         brush = metallicGoldBrush,
                         fontSize = 24.sp,
@@ -479,8 +479,8 @@ fun SplashScreen(
 
             // CREATOR SIGNATURE (CRITICAL BRANDING)
             // Anchored precisely at bottom with safe-area padding
-            // "Created by Ryaan Usman" (16.sp, FontWeight.SemiBold, glowing serif)
-            // "Powered by Ryaan Studio" (12.sp, letterSpacing: 2.sp, metallic subtext)
+            // "Created by Ayaan" (16.sp, FontWeight.SemiBold, glowing serif)
+            // "Powered by Ayaan Studio" (12.sp, letterSpacing: 2.sp, metallic subtext)
             // Staggered fade-in & floating glow activated after 1.2 seconds
             AnimatedVisibility(
                 visible = signatureVisible,
@@ -533,7 +533,7 @@ fun SplashScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "Created by Ryaan Usman",
+                                text = "Created by Ayaan",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.Serif,
@@ -546,7 +546,7 @@ fun SplashScreen(
                             Spacer(modifier = Modifier.height(4.dp))
 
                             Text(
-                                text = "POWERED BY RYAAN STUDIO",
+                                text = "POWERED BY AYAAN STUDIO",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = Color(0xFFFBBF24),
