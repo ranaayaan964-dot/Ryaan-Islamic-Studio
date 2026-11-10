@@ -8,6 +8,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.content.pm.PackageManager
+import android.widget.Toast
 import com.example.util.QuranRecitationEvaluator
 import com.example.util.RecitationEvaluationResult
 import com.example.util.WordEvaluationStatus
@@ -77,6 +78,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.example.ui.components.GlassCard
 import com.example.ui.theme.DarkNavyBackground
 import com.example.ui.theme.DarkNavySurfaceVariant

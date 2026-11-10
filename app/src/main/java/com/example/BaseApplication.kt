@@ -29,7 +29,7 @@ class BaseApplication : Application() {
 
         UnityAds.initialize(
             applicationContext,
-            BuildConfig.UNITY_GAME_ID,
+            BuildConfig.UNITY_GAME_ID.ifBlank { "800424750" },
             false,
             object : IUnityAdsInitializationListener {
                 override fun onInitializationComplete() {

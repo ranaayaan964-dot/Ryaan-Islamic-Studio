@@ -77,28 +77,28 @@ abstract class AppDatabase : RoomDatabase() {
                             if (nameColumn >= 0) add(cursor.getString(nameColumn))
                         }
                     }
-
-                    val MIGRATION_3_4 = object : Migration(3, 4) {
-                        override fun migrate(db: SupportSQLiteDatabase) {
-                            val userColumns = db.query("PRAGMA table_info(`users`)").use { cursor ->
-                                buildSet {
-                                    val nameColumn = cursor.getColumnIndex("name")
-                                    while (cursor.moveToNext()) {
-                                        if (nameColumn >= 0) add(cursor.getString(nameColumn))
-                                    }
-                                }
-                            }
-                            if ("auth_provider" !in userColumns) {
-                                db.execSQL("ALTER TABLE `users` ADD COLUMN `auth_provider` TEXT NOT NULL DEFAULT ''")
-                            }
-                            if ("created_at" !in userColumns) {
-                                db.execSQL("ALTER TABLE `users` ADD COLUMN `created_at` INTEGER NOT NULL DEFAULT 0")
-                            }
-                        }
-                    }
                 }
                 if ("firebase_uid" !in userColumns) {
                     db.execSQL("ALTER TABLE `users` ADD COLUMN `firebase_uid` TEXT NOT NULL DEFAULT ''")
+                }
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val userColumns = db.query("PRAGMA table_info(`users`)").use { cursor ->
+                    buildSet {
+                        val nameColumn = cursor.getColumnIndex("name")
+                        while (cursor.moveToNext()) {
+                            if (nameColumn >= 0) add(cursor.getString(nameColumn))
+                        }
+                    }
+                }
+                if ("auth_provider" !in userColumns) {
+                    db.execSQL("ALTER TABLE `users` ADD COLUMN `auth_provider` TEXT NOT NULL DEFAULT ''")
+                }
+                if ("created_at" !in userColumns) {
+                    db.execSQL("ALTER TABLE `users` ADD COLUMN `created_at` INTEGER NOT NULL DEFAULT 0")
                 }
             }
         }

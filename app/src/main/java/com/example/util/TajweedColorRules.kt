@@ -102,7 +102,7 @@ object TajweedColorRules {
         val iqlabColor = if (isDark) ColorIqlabDark else ColorIqlabLight
 
         val qalqalahChars = setOf('ق', 'ط', 'ب', 'ج', 'د')
-        val maddChars = setOf('~', 'ۤ', 'آ', 'ٱ', 'ٰ', 'ٓ')
+        val maddChars = setOf('~', 'آ', '\u0653', '\u0670')
 
         return buildAnnotatedString {
             var i = 0
@@ -112,7 +112,7 @@ object TajweedColorRules {
                 val ch = arabicText[i]
 
                 // Check Madd symbols
-                if (maddChars.contains(ch) || (i + 1 < len && arabicText[i + 1] == 'ٓ')) {
+                if (maddChars.contains(ch) || (i + 1 < len && arabicText[i + 1] == '\u0653')) {
                     val start = i
                     val end = (i + 2).coerceAtMost(len)
                     pushStyle(SpanStyle(color = maddColor, fontWeight = FontWeight.Bold))
@@ -123,7 +123,9 @@ object TajweedColorRules {
                 }
 
                 // Check Iqlab (small meem marker ۢ)
-                if (ch == 'ۢ' || (i + 1 < len && arabicText[i + 1] == 'ۢ')) {
+                if (ch == '\u06E2' || ch == '\u06ED' ||
+                    (i + 1 < len && (arabicText[i + 1] == '\u06E2' || arabicText[i + 1] == '\u06ED'))
+                ) {
                     val start = i
                     val end = (i + 2).coerceAtMost(len)
                     pushStyle(SpanStyle(color = iqlabColor, fontWeight = FontWeight.SemiBold))
@@ -134,7 +136,7 @@ object TajweedColorRules {
                 }
 
                 // Check Ghunnah: Noon (ن) or Meem (م) followed by Shaddah (ّ)
-                if ((ch == 'ن' || ch == 'م') && i + 1 < len && arabicText[i + 1] == 'ّ') {
+                if ((ch == 'ن' || ch == 'م') && i + 1 < len && arabicText[i + 1] == '\u0651') {
                     val start = i
                     // span across the letter, shaddah, and possible harakah
                     var end = i + 2
@@ -148,7 +150,8 @@ object TajweedColorRules {
 
                 // Check Qalqalah: letters 'ق', 'ط', 'ب', 'ج', 'د' with Sukun or at word boundary
                 if (qalqalahChars.contains(ch)) {
-                    val hasSukun = i + 1 < len && arabicText[i + 1] == 'ْ'
+                    val hasSukun = i + 1 < len &&
+                        (arabicText[i + 1] == '\u0652' || arabicText[i + 1] == '\u06E1')
                     if (hasSukun) {
                         val start = i
                         val end = i + 2

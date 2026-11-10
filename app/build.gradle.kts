@@ -31,7 +31,7 @@ val geminiApiKey = resolveSecret("GEMINI_API_KEY")
 val groqApiKey = resolveSecret("GROQ_API_KEY")
 val gmailSenderEmail = resolveSecret("GMAIL_SENDER_EMAIL").ifBlank { "ayianrana20133@gmail.com" }
 val gmailAppPassword = resolveSecret("GMAIL_16_DIGIT_APP_PASSWORD")
-val unityGameId = resolveSecret("UNITY_GAME_ID").ifBlank { "" }
+val unityGameId = resolveSecret("UNITY_GAME_ID").ifBlank { "800424750" }
 
 android {
   namespace = "com.example"

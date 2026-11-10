@@ -699,7 +699,6 @@ fun QuranReaderScreen(
                                 onNextSurah = {
                                     if (currentSurahNumber < 114) currentSurahNumber++
                                 }
-                                }
                             )
                         }
                     }

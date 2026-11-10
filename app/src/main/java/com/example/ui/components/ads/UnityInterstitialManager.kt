@@ -10,7 +10,7 @@ object UnityInterstitialManager {
     private const val TAG = "UnityInterstitial"
     private val loadedPlacements = mutableSetOf<String>()
 
-    fun preloadInterstitial(activity: Activity, placementId: String = "Interstitial_Android") {
+    fun preloadInterstitial(activity: Activity, placementId: String = "BP_Interstitial_Android") {
         if (loadedPlacements.contains(placementId)) return
 
         UnityAds.load(placementId, object : IUnityAdsLoadListener {
@@ -32,7 +32,7 @@ object UnityInterstitialManager {
 
     fun showInterstitial(
         activity: Activity,
-        placementId: String = "Interstitial_Android",
+        placementId: String = "BP_Interstitial_Android",
         onAdClosed: () -> Unit = {}
     ) {
         if (!loadedPlacements.contains(placementId)) {
