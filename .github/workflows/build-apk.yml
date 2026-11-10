@@ -30,7 +30,9 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GMAIL_SENDER_EMAIL: ${{ secrets.GMAIL_SENDER_EMAIL }} GMAIL_16_DIGIT_APP_PASSWORD:${{ secrets.GMAIL_16_DIGIT_APP_PASSWORD }}
+          GMAIL_SENDER_EMAIL: ${{ secrets.GMAIL_SENDER_EMAIL }}
+          GMAIL_16_DIGIT_APP_PASSWORD: ${{ secrets.GMAIL_16_DIGIT_APP_PASSWORD }}
+          UNITY_GAME_ID: ${{ secrets.UNITY_GAME_ID }}
         run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload Debug APK Artifact
