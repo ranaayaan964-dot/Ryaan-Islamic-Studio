@@ -50,7 +50,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 private val Context.locationCacheDataStore: DataStore<Preferences> by preferencesDataStore(
-    name = "ryaan_location_cache_preferences"
+    name = "ayaan_location_cache_preferences"
 )
 
 /**

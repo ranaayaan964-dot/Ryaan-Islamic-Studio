@@ -49,6 +49,12 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE firebase_uid = :firebaseUid LIMIT 1")
     suspend fun getUserByFirebaseUid(firebaseUid: String): UserEntity?
 
+    @Query("SELECT * FROM users WHERE email = :email COLLATE NOCASE LIMIT 1")
+    suspend fun findUserByEmail(email: String): UserEntity?
+
+    @Query("UPDATE users SET password_hash = :passwordHash WHERE email = :email COLLATE NOCASE")
+    suspend fun updatePasswordByEmail(email: String, passwordHash: String)
+
     @Query("SELECT COALESCE(MAX(id), 0) + 1 FROM users")
     suspend fun getNextUserId(): Long
 
@@ -69,6 +75,9 @@ interface UserDao {
      */
     @Query("UPDATE users SET is_logged_in = 0, session_token = NULL")
     suspend fun logout()
+
+    @Query("UPDATE users SET is_logged_in = 0, session_token = NULL")
+    suspend fun logoutAllUsers()
 
     @Query("UPDATE users SET is_logged_in = 0, session_token = NULL WHERE id != :activeUserId")
     suspend fun logoutOtherUsers(activeUserId: Long)

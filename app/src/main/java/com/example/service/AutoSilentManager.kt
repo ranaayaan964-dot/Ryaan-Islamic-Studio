@@ -80,8 +80,8 @@ object AutoSilentManager {
     fun evaluateSilentCondition(
         context: Context,
         prayers: List<PrayerTimeItem>,
-        userLat: Double = Double.NaN,
-        userLng: Double = Double.NaN
+        userLat: Double? = null,
+        userLng: Double? = null
     ) {
         if (!_silentState.value.isEnabled) return
 
@@ -113,9 +113,11 @@ object AutoSilentManager {
             }
         }
 
-        val hasValidGps = userLat.isFinite() && userLng.isFinite()
-        val distanceToMosque = if (hasValidGps) {
-            calculateDistanceMeters(userLat, userLng, CENTRAL_MOSQUE_LAT, CENTRAL_MOSQUE_LNG)
+        val validLat = userLat?.takeIf { it.isFinite() }
+        val validLng = userLng?.takeIf { it.isFinite() }
+        val hasValidGps = validLat != null && validLng != null
+        val distanceToMosque = if (validLat != null && validLng != null) {
+            calculateDistanceMeters(validLat, validLng, CENTRAL_MOSQUE_LAT, CENTRAL_MOSQUE_LNG)
         } else {
             Double.POSITIVE_INFINITY
         }

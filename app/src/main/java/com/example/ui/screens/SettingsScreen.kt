@@ -490,7 +490,7 @@ fun SettingsScreen(
             },
             text = {
                 Text(
-                    text = "You will be logged out of the Administrator console. Your username '@${cachedUsername.ifBlank { "ayaan" }}' will remain securely saved for fast re-login.",
+                    text = "${profileFullName.ifBlank { "Ayaan" }} (${profileRole.ifBlank { "System Administrator" }}) will be logged out. Your username '@${cachedUsername.ifBlank { "ayaan" }}' will remain securely saved for fast re-login.",
                     fontSize = 13.sp,
                     color = SlateMuted
                 )

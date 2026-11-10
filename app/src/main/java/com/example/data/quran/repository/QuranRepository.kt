@@ -49,7 +49,11 @@ class QuranRepository(context: Context) {
             ?: QuranJsonApi.ALL_114_SURAHS.firstOrNull { it.number == surahId }?.numberOfAyahs
             ?: 0
         if (expectedCount > 0 && local.size == expectedCount &&
-            local.all { it.textArabic.isNotBlank() && it.textUrduTranslation.isNotBlank() }
+            local.all {
+                it.textArabic.isNotBlank() &&
+                    it.textEnglishTranslation.isNotBlank() &&
+                    it.textUrduTranslation.isNotBlank()
+            }
         ) {
             return@withContext local
         }
@@ -74,7 +78,11 @@ class QuranRepository(context: Context) {
                     )
                 }
             if (expectedCount > 0 && entities.size == expectedCount &&
-                entities.all { it.textArabic.isNotBlank() && it.textUrduTranslation.isNotBlank() }
+                entities.all {
+                    it.textArabic.isNotBlank() &&
+                        it.textEnglishTranslation.isNotBlank() &&
+                        it.textUrduTranslation.isNotBlank()
+                }
             ) {
                 dao.insertAyahs(entities)
                 QuranJsonApi.cacheSurah(remote)
@@ -97,7 +105,11 @@ class QuranRepository(context: Context) {
                 ?: QuranJsonApi.ALL_114_SURAHS.firstOrNull { it.number == surahId }?.numberOfAyahs
                 ?: 0
             if (expectedCount == 0 || surahAyahs.size != expectedCount ||
-                surahAyahs.any { it.textArabic.isBlank() || it.textUrduTranslation.isBlank() }
+                surahAyahs.any {
+                    it.textArabic.isBlank() ||
+                        it.textEnglishTranslation.isBlank() ||
+                        it.textUrduTranslation.isBlank()
+                }
             ) {
                 return@withContext emptyList()
             }

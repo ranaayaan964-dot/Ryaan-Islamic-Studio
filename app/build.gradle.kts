@@ -31,13 +31,14 @@ val geminiApiKey = resolveSecret("GEMINI_API_KEY")
 val groqApiKey = resolveSecret("GROQ_API_KEY")
 val gmailSenderEmail = resolveSecret("GMAIL_SENDER_EMAIL").ifBlank { "ayianrana20133@gmail.com" }
 val gmailAppPassword = resolveSecret("GMAIL_16_DIGIT_APP_PASSWORD")
+val unityGameId = resolveSecret("UNITY_GAME_ID").ifBlank { "" }
 
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.prayertimes.rzxk"
+    applicationId = "com.ayaan.islamicstudio"
     minSdk = 24
     targetSdk = 35
     versionCode = 2
@@ -49,6 +50,7 @@ android {
     buildConfigField("String", "GROQ_API_KEY", groqApiKey.toBuildConfigStringLiteral())
     buildConfigField("String", "GMAIL_SENDER_EMAIL", gmailSenderEmail.toBuildConfigStringLiteral())
     buildConfigField("String", "GMAIL_16_DIGIT_APP_PASSWORD", gmailAppPassword.toBuildConfigStringLiteral())
+    buildConfigField("String", "UNITY_GAME_ID", unityGameId.toBuildConfigStringLiteral())
   }
 
   signingConfigs {
@@ -105,6 +107,7 @@ secrets {
   ignoreList.add("GROQ_API_KEY")
   ignoreList.add("GMAIL_SENDER_EMAIL")
   ignoreList.add("GMAIL_16_DIGIT_APP_PASSWORD")
+  ignoreList.add("UNITY_GAME_ID")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
@@ -163,6 +166,7 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.play.services.location)
+  implementation("com.unity3d.ads:unity-ads:4.12.5")
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)

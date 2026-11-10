@@ -107,6 +107,7 @@ import com.example.data.quran.model.AyahEntity
 import com.example.data.quran.repository.QuranRepository
 import com.example.service.audio.QuranAudioController
 import com.example.ui.components.NeumorphicCard
+import com.example.ui.components.ads.UnityBannerAd
 import com.example.ui.components.audio.QuranPlaybackControlBar
 import com.example.ui.theme.CharcoalPrimary
 import com.example.ui.theme.DeepRoyalEmerald
@@ -740,6 +741,11 @@ fun QuranReaderScreen(
                     }
                 }
             }
+
+            UnityBannerAd(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                placementId = "BP_Banner_Android"
+            )
 
             // DOCKED PLAYBACK CONTROL BAR (Features Play/Pause, Track Progress, Seeking & Qari info)
             if (isAudioPlaying || audioDurationMs > 0L || audioPositionMs > 0L) {

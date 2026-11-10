@@ -299,6 +299,7 @@ class QuranAudioService : Service() {
         totalAyahs: Int,
         qariId: QariId
     ) {
+        stopOnSurahEnd = true
         val surah = surahId.coerceIn(1, 114)
         val total = totalAyahs.takeIf { it > 0 }
             ?: QuranJsonApi.ALL_114_SURAHS.firstOrNull { it.number == surah }?.numberOfAyahs

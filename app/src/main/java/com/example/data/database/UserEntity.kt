@@ -38,5 +38,11 @@ data class UserEntity(
     val role: String = "User",
 
     @ColumnInfo(name = "firebase_uid", defaultValue = "''")
-    val firebaseUid: String = ""
+    val firebaseUid: String = "",
+
+    @ColumnInfo(name = "auth_provider", defaultValue = "''")
+    val authProvider: String = "",
+
+    @ColumnInfo(name = "created_at", defaultValue = "0")
+    val createdAt: Long = System.currentTimeMillis()
 )

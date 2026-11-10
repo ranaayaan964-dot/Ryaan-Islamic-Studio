@@ -44,7 +44,7 @@ object SnoozeAudioDownloader {
             Log.d(TAG, "Downloading Ayat recitation from $audioUrl to ${targetFile.absolutePath}...")
             val request = Request.Builder()
                 .url(audioUrl)
-                .addHeader("User-Agent", "Ryaan-Islamic-Studio-Android")
+                .addHeader("User-Agent", "Ayaan-Islamic-Studio-Android")
                 .build()
 
             val response = okHttpClient.newCall(request).execute()

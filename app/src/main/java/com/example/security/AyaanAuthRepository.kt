@@ -72,6 +72,8 @@ class AyaanAuthRepository(context: Context) {
                 email = normalizedEmail,
                 role = "User",
                 passwordHash = sha256(password),
+                authProvider = "email",
+                createdAt = System.currentTimeMillis(),
                 rememberMe = rememberMe
             )
         }.onFailure {
@@ -137,6 +139,7 @@ class AyaanAuthRepository(context: Context) {
                     email = firebaseUser.email ?: email,
                     role = "User",
                     passwordHash = passwordHash,
+                    authProvider = "email",
                     rememberMe = rememberMe
                 )
             } catch (_: Exception) {
@@ -152,6 +155,8 @@ class AyaanAuthRepository(context: Context) {
                     email = localAccount.email,
                     role = localAccount.role,
                     passwordHash = passwordHash,
+                    authProvider = localAccount.authProvider.ifBlank { "email" },
+                    createdAt = localAccount.createdAt,
                     rememberMe = rememberMe
                 )
             }
@@ -264,8 +269,10 @@ class AyaanAuthRepository(context: Context) {
             val passwordHash = sha256(newPassword)
             val localUser = userDao.getUserByUsernameOrEmail(normalizedEmail)
                 ?: userDao.getUserByUsernameOrEmail(normalizedEmail.substringBefore("@"))
+                ?: userDao.findUserByEmail(normalizedEmail)
             val updatedUser = localUser?.copy(passwordHash = passwordHash, loginTimestamp = System.currentTimeMillis())
             if (updatedUser != null) userDao.updateUser(updatedUser)
+            userDao.updatePasswordByEmail(normalizedEmail, passwordHash)
 
             val firebaseUser = auth.currentUser
             if (firebaseUser != null && firebaseUser.email?.equals(normalizedEmail, ignoreCase = true) == true) {
@@ -317,6 +324,8 @@ class AyaanAuthRepository(context: Context) {
             email = normalizedEmail,
             role = "User",
             passwordHash = "",
+            authProvider = "google",
+            createdAt = createdAt,
             rememberMe = rememberMe
         )
     }
@@ -337,6 +346,8 @@ class AyaanAuthRepository(context: Context) {
         email: String,
         role: String,
         passwordHash: String = "",
+        authProvider: String = "",
+        createdAt: Long = System.currentTimeMillis(),
         admin: Boolean = false,
         rememberMe: Boolean = true
     ): UserEntity {
@@ -357,7 +368,9 @@ class AyaanAuthRepository(context: Context) {
             isLoggedIn = true,
             loginTimestamp = System.currentTimeMillis(),
             role = role,
-            firebaseUid = if (admin) "" else uid
+            firebaseUid = if (admin) "" else uid,
+            authProvider = authProvider.ifBlank { existing?.authProvider ?: if (admin) "local" else "email" },
+            createdAt = existing?.createdAt?.takeIf { it > 0L } ?: createdAt
         )
         userDao.logoutOtherUsers(entity.id)
         userDao.insertUser(entity)

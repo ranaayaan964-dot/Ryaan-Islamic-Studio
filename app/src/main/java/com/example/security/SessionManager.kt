@@ -54,7 +54,7 @@ class SessionManager private constructor(context: Context) {
 
     companion object {
         private const val TAG = "SessionManager"
-        private const val PREFS_FILE_NAME = "ryaan_secure_session_prefs"
+        private const val PREFS_FILE_NAME = "ayaan_secure_session_prefs"
 
         const val KEY_CACHED_USERNAME = "cached_username"
         const val KEY_CACHED_PASSWORD = "cached_password"

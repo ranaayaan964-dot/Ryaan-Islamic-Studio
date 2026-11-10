@@ -109,6 +109,7 @@ import com.example.data.repository.AladhanRepository
 import com.example.data.repository.PrayerApiProvider
 import com.example.service.AutoSilentManager
 import com.example.service.PrayerCountdownEngine
+import com.example.ui.components.ads.UnityBannerAd
 import com.example.ui.components.AppVersionManagementDialog
 import com.example.ui.components.GlassCard
 import com.example.ui.components.TestNotificationCard
@@ -251,8 +252,8 @@ fun NextGenDashboardScreen(
                         android.util.Log.w("NextGenDashboard", "Could not read cached location after prayer refresh", e)
                         null
                     }
-                    val lat = location?.latitude ?: Double.NaN
-                    val lng = location?.longitude ?: Double.NaN
+                    val lat = location?.latitude
+                    val lng = location?.longitude
                     AutoSilentManager.evaluateSilentCondition(context, items, lat, lng)
                 }
             }
@@ -293,8 +294,8 @@ fun NextGenDashboardScreen(
                     AutoSilentManager.evaluateSilentCondition(
                         context,
                         prayers,
-                        location?.latitude ?: Double.NaN,
-                        location?.longitude ?: Double.NaN
+                        location?.latitude,
+                        location?.longitude
                     )
                 }
             }
@@ -2066,6 +2067,12 @@ fun NextGenDashboardScreen(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            UnityBannerAd(
+                modifier = Modifier.padding(bottom = 12.dp),
+                placementId = "BP_Banner_Android"
+            )
         }
 
         // Check for Updates Dialog

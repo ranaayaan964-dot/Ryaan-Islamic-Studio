@@ -45,7 +45,7 @@ class LocationForegroundService : Service() {
 
     companion object {
         private const val TAG = "LocationForegroundService"
-        const val CHANNEL_ID = "ryaan_hajj_tracker_channel"
+        const val CHANNEL_ID = "ayaan_hajj_tracker_channel"
         const val NOTIFICATION_ID = 8891
 
         private val _currentLocationFlow = MutableStateFlow<Location?>(null)

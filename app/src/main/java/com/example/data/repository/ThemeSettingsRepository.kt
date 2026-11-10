@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-private val Context.themeDataStore: DataStore<Preferences> by preferencesDataStore(name = "ryaan_theme_preferences")
+private val Context.themeDataStore: DataStore<Preferences> by preferencesDataStore(name = "ayaan_theme_preferences")
 
 /**
  * MODULE 3: PERSISTENT THEME REPOSITORY

@@ -28,7 +28,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "PrayerAlarmReceiver"
-        const val CHANNEL_ID = "ryaan_prayer_alarm_channel"
+        const val CHANNEL_ID = "ayaan_prayer_alarm_channel"
         const val NOTIFICATION_ID = 9991
     }
 

@@ -36,7 +36,7 @@ interface GitHubApiService {
 
     @Headers(
         "Accept: application/vnd.github.v3+json",
-        "User-Agent: Ryaan-Islamic-Studio-Android"
+        "User-Agent: Ayaan-Islamic-Studio-Android"
     )
     @GET("repos/ranaayaan964-dot/Ryaan-Islamic-Studio/releases/latest")
     suspend fun getLatestRelease(): Response<GitHubReleaseResponse>
@@ -53,7 +53,7 @@ interface GitHubApiService {
                 .addInterceptor { chain ->
                     val request = chain.request().newBuilder()
                         .header("Accept", "application/vnd.github.v3+json")
-                        .header("User-Agent", "Ryaan-Islamic-Studio-Android")
+                        .header("User-Agent", "Ayaan-Islamic-Studio-Android")
                         .build()
                     chain.proceed(request)
                 }
@@ -83,7 +83,7 @@ interface GitHubApiService {
                 val request = Request.Builder()
                     .url(GITHUB_RELEASES_LATEST_URL)
                     .addHeader("Accept", "application/vnd.github.v3+json")
-                    .addHeader("User-Agent", "Ryaan-Islamic-Studio-Android")
+                    .addHeader("User-Agent", "Ayaan-Islamic-Studio-Android")
                     .get()
                     .build()
 

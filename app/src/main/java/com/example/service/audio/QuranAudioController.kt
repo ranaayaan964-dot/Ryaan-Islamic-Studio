@@ -76,7 +76,7 @@ object QuranAudioController {
     val sleepTimerSeconds: StateFlow<Int?> = _sleepTimerSeconds.asStateFlow()
 
     private var syncJob: Job? = null
-    private var pendingAction: (() -> Unit)? = null
+    private val pendingActions = ArrayDeque<() -> Unit>()
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -107,8 +107,9 @@ object QuranAudioController {
                 }
             }
 
-            pendingAction?.invoke()
-            pendingAction = null
+            while (pendingActions.isNotEmpty()) {
+                pendingActions.removeFirst().invoke()
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -146,7 +147,7 @@ object QuranAudioController {
             audioService?.playSurah(surahId, surahName, audioUrl, startPositionMs)
             return
         }
-        pendingAction = { audioService?.playSurah(surahId, surahName, audioUrl, startPositionMs) }
+        pendingActions.addLast { audioService?.playSurah(surahId, surahName, audioUrl, startPositionMs) }
         bindService(context)
     }
 
@@ -155,7 +156,7 @@ object QuranAudioController {
             audioService?.playSurahWithQari(surahId, surahName, qariId, startPositionMs)
             return
         }
-        pendingAction = { audioService?.playSurahWithQari(surahId, surahName, qariId, startPositionMs) }
+        pendingActions.addLast { audioService?.playSurahWithQari(surahId, surahName, qariId, startPositionMs) }
         bindService(context)
     }
 
@@ -171,7 +172,7 @@ object QuranAudioController {
             audioService?.playAyah(surahId, surahName, ayahNumber, totalAyahs, qariId)
             return
         }
-        pendingAction = {
+        pendingActions.addLast {
             audioService?.playAyah(surahId, surahName, ayahNumber, totalAyahs, qariId)
         }
         bindService(context)
@@ -189,7 +190,7 @@ object QuranAudioController {
             audioService?.playAyahLoop(surahId, surahName, qariId, ayah, repeatMode)
             return
         }
-        pendingAction = { audioService?.playAyahLoop(surahId, surahName, qariId, ayah, repeatMode) }
+        pendingActions.addLast { audioService?.playAyahLoop(surahId, surahName, qariId, ayah, repeatMode) }
         bindService(context)
     }
 
@@ -210,7 +211,7 @@ object QuranAudioController {
             audioService?.togglePlayPause()
             return
         }
-        pendingAction = { audioService?.togglePlayPause() }
+        pendingActions.addLast { audioService?.togglePlayPause() }
         bindService(context)
     }
 
@@ -223,7 +224,7 @@ object QuranAudioController {
             audioService?.resumeAudio()
             return
         }
-        pendingAction = { audioService?.resumeAudio() }
+        pendingActions.addLast { audioService?.resumeAudio() }
         bindService(context)
     }
 
@@ -244,7 +245,7 @@ object QuranAudioController {
             audioService?.playNextSurah()
             return
         }
-        pendingAction = { audioService?.playNextSurah() }
+        pendingActions.addLast { audioService?.playNextSurah() }
         bindService(context)
     }
 
@@ -253,7 +254,7 @@ object QuranAudioController {
             audioService?.playPreviousSurah()
             return
         }
-        pendingAction = { audioService?.playPreviousSurah() }
+        pendingActions.addLast { audioService?.playPreviousSurah() }
         bindService(context)
     }
 
@@ -271,7 +272,7 @@ object QuranAudioController {
             isBound = false
             isBinding = false
             audioService = null
-            pendingAction = null
+            pendingActions.clear()
             _serviceConnectedFlow.value = false
         }
     }

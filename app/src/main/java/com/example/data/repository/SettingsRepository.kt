@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "ryaan_settings_datastore")
+val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "ayaan_settings_datastore")
 
 class SettingsRepository(private val context: Context) {
 

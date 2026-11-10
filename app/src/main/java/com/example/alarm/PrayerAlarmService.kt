@@ -58,7 +58,7 @@ class PrayerAlarmService : Service() {
 
     companion object {
         private const val TAG = "PrayerAlarmService"
-        const val CHANNEL_ID = "ryaan_prayer_alarm_channel"
+        const val CHANNEL_ID = "ayaan_prayer_alarm_channel"
         const val NOTIFICATION_ID = 9991
         const val NOTIFICATION_ID_PRE15 = 9992
         const val NOTIFICATION_ID_PRE5 = 9993
@@ -177,7 +177,7 @@ class PrayerAlarmService : Service() {
             val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
             wakeLock = powerManager?.newWakeLock(
                 PowerManager.PARTIAL_WAKE_LOCK,
-                "RyaanIslamicApp:PrayerAlarmWakeLock"
+                "AyaanIslamicStudio:PrayerAlarmWakeLock"
             )?.apply {
                 setReferenceCounted(false)
                 acquire()

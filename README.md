@@ -1,12 +1,7 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
 
-# Run and deploy your AI Studio app
+# Ayaan Islamic Studio
 
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/f74c893f-f811-4c8c-b599-591a5b69007d
+Ayaan Islamic Studio provides prayer times, Quran reading and audio, Qibla, Islamic tools, AI assistance, notifications, and account services.
 
 ## Run Locally
 
@@ -19,4 +14,4 @@ View your app in AI Studio: https://ai.studio/apps/f74c893f-f811-4c8c-b599-591a5
 4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` and `GROQ_API_KEY` there as needed (see `.env.example` for the variable names). These values are packaged in the client APK and are not suitable for protecting production credentials; use a server-side proxy for production provider keys.
 5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
 6. Run the app on an emulator or physical device
-7. If you have already published your app in AI Studio, please [request upload key reset](https://support.google.com/googleplay/android-developer/answer/9842756#zippy=%2Crequest-an-upload-key-reset) in Google Play Console.
+7. Configure Ayaan Islamic Studio signing and Firebase settings before publishing a release APK.
