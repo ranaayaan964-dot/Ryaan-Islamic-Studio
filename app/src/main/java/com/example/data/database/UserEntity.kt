@@ -44,5 +44,11 @@ data class UserEntity(
     val authProvider: String = "",
 
     @ColumnInfo(name = "created_at", defaultValue = "0")
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+
+    @ColumnInfo(name = "is_removed", defaultValue = "0")
+    val isRemoved: Boolean = false,
+
+    @ColumnInfo(name = "activity_summary", defaultValue = "'Active in App'")
+    val activitySummary: String = "Active in App"
 )

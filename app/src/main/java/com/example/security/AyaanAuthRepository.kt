@@ -14,19 +14,130 @@ import com.example.data.repository.SettingsRepository
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthMultiFactorException
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.MultiFactorResolver
 import com.google.firebase.auth.OAuthProvider
+import com.google.firebase.auth.PhoneAuthOptions
+import com.google.firebase.auth.PhoneAuthProvider
+import com.google.firebase.auth.PhoneMultiFactorGenerator
+import com.google.firebase.auth.PhoneMultiFactorInfo
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class AyaanAuthRepository(context: Context) {
     private val appContext = context.applicationContext
     private val auth = FirebaseAuth.getInstance()
     private val firestore = FirebaseFirestore.getInstance()
     private val userDao = AppDatabase.getInstance(appContext).userDao()
+    private var pendingMfaResolver: MultiFactorResolver? = null
+    private var pendingMfaVerificationId: String? = null
+    private var pendingMfaCredential: com.google.firebase.auth.PhoneAuthCredential? = null
+    private var pendingMfaPasswordHash: String = ""
+
+    fun hasPendingMfaSignIn(): Boolean = pendingMfaResolver != null
+
+    fun cancelPendingMfaSignIn() {
+        clearPendingMfa()
+    }
+
+    fun pendingMfaPhoneLabel(): String? =
+        pendingMfaResolver?.hints
+            ?.filterIsInstance<PhoneMultiFactorInfo>()
+            ?.firstOrNull()
+            ?.phoneNumber
+
+    suspend fun sendPendingMfaCode(): Result<String> = withContext(Dispatchers.Main.immediate) {
+        runCatching {
+            val resolver = pendingMfaResolver ?: error("No pending multi-factor sign-in.")
+            val hint = resolver.hints.filterIsInstance<PhoneMultiFactorInfo>().firstOrNull()
+                ?: error("This account has no supported SMS second factor. Contact the administrator.")
+            suspendCancellableCoroutine { continuation ->
+                val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+                    override fun onVerificationCompleted(credential: com.google.firebase.auth.PhoneAuthCredential) {
+                        if (continuation.isActive) {
+                            pendingMfaCredential = credential
+                            continuation.resume("Automatic phone verification completed.")
+                        }
+                    }
+
+                    override fun onVerificationFailed(exception: com.google.firebase.FirebaseException) {
+                        if (continuation.isActive) continuation.resumeWithException(exception)
+                    }
+
+                    override fun onCodeSent(
+                        verificationId: String,
+                        token: PhoneAuthProvider.ForceResendingToken
+                    ) {
+                        if (continuation.isActive) {
+                            pendingMfaVerificationId = verificationId
+                            continuation.resume("Verification code sent to ${hint.phoneNumber}.")
+                        }
+                    }
+                }
+                val options = PhoneAuthOptions.newBuilder()
+                    .setMultiFactorHint(hint)
+                    .setMultiFactorSession(resolver.session)
+                    .setCallbacks(callbacks)
+                    .setTimeout(60L, TimeUnit.SECONDS)
+                    .build()
+                PhoneAuthProvider.verifyPhoneNumber(options)
+            }
+        }
+    }
+
+    suspend fun completePendingMfaSignIn(code: String, rememberMe: Boolean = true): Result<UserEntity> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val resolver = pendingMfaResolver ?: error("No pending multi-factor sign-in.")
+                val credential = pendingMfaCredential ?: run {
+                    val verificationId = pendingMfaVerificationId ?: error("Request a verification code first.")
+                    require(code.matches(Regex("\\d{6}"))) { "Enter the 6-digit SMS code." }
+                    PhoneAuthProvider.getCredential(verificationId, code)
+                }
+                val assertion = PhoneMultiFactorGenerator.getAssertion(credential)
+                val result = resolver.resolveSignIn(assertion).await()
+                val firebaseUser = result.user ?: error("Firebase did not return the verified account.")
+                val document = firestore.collection("users").document(firebaseUser.uid).get().await()
+                check(document.getBoolean("isRemoved") != true && document.getString("status") != "REMOVED") {
+                    "Your account has been removed by the Administrator."
+                }
+                val now = System.currentTimeMillis()
+                firestore.collection("users").document(firebaseUser.uid).set(
+                    mapOf("lastLoginAt" to now, "activitySummary" to "Active in App"),
+                    com.google.firebase.firestore.SetOptions.merge()
+                ).await()
+                val claims = firebaseUser.getIdToken(true).await().claims
+                val isAdmin = claims["admin"] == true
+                val user = persistUser(
+                    uid = firebaseUser.uid,
+                    username = document.getString("username")
+                        ?: firebaseUser.email?.substringBefore("@")
+                        ?: "user",
+                    fullName = document.getString("fullName") ?: firebaseUser.displayName ?: "Ayaan User",
+                    email = firebaseUser.email ?: error("The account has no email address."),
+                    role = if (isAdmin) "ADMIN" else "USER",
+                    passwordHash = pendingMfaPasswordHash,
+                    authProvider = if (pendingMfaPasswordHash.isNotBlank()) "email" else "google",
+                    rememberMe = rememberMe
+                )
+                pendingMfaResolver = null
+                pendingMfaVerificationId = null
+                pendingMfaCredential = null
+                pendingMfaPasswordHash = ""
+                user
+            }.onFailure {
+                if (it is CancellationException) throw it
+                Log.e(TAG, "Multi-factor sign-in failed", it)
+            }
+        }
 
     suspend fun signUpWithEmail(
         fullName: String,
@@ -60,8 +171,11 @@ class AyaanAuthRepository(context: Context) {
                     "username" to normalizedUsername,
                     "email" to normalizedEmail,
                     "authProvider" to "email",
-                    "passwordHash" to sha256(password),
-                    "createdAt" to System.currentTimeMillis()
+                    "createdAt" to System.currentTimeMillis(),
+                    "lastLoginAt" to System.currentTimeMillis(),
+                    "activitySummary" to "Active in App",
+                    "role" to "USER",
+                    "isRemoved" to false
                 )
             ).await()
 
@@ -92,33 +206,13 @@ class AyaanAuthRepository(context: Context) {
             require(password.isNotBlank()) { "Enter your password." }
 
             val normalizedIdentifier = identifier.trim()
-            if (isAdminUsername(normalizedIdentifier) && password == ADMIN_PASSWORD) {
-                return@runCatching persistUser(
-                    uid = "local_admin",
-                    username = "ayaan",
-                    fullName = "Ayaan Studio Administrator",
-                    email = ADMIN_EMAIL,
-                    role = "Administrator",
-                    admin = true,
-                    rememberMe = rememberMe
-                )
-            }
-
             val email = if (normalizedIdentifier.contains("@")) {
                 normalizedIdentifier
             } else {
                 val username = normalizedIdentifier.lowercase()
                 val localAccount = userDao.getUserByUsername(username)
                 localAccount?.takeIf { it.firebaseUid.isNotBlank() }?.email
-                    ?: firestore.collection("users")
-                        .whereEqualTo("username", username)
-                        .limit(1)
-                        .get()
-                        .await()
-                        .documents
-                        .firstOrNull()
-                        ?.getString("email")
-                    ?: throw IllegalArgumentException("Account not found.")
+                    ?: throw IllegalArgumentException("Account not found on this device. Sign in with your email address.")
             }
 
             val passwordHash = sha256(password)
@@ -126,10 +220,21 @@ class AyaanAuthRepository(context: Context) {
                 val credential = auth.signInWithEmailAndPassword(email, password).await()
                 val firebaseUser = credential.user ?: error("Firebase did not return the signed-in user.")
                 val document = firestore.collection("users").document(firebaseUser.uid).get().await()
+                if (document.getBoolean("isRemoved") == true || document.getString("status") == "REMOVED") {
+                    userDao.markUserRemovedByFirebaseUid(firebaseUser.uid)
+                    userDao.markUserRemoved(firebaseUser.email ?: normalizedIdentifier)
+                    auth.signOut()
+                    error("Your account has been removed by the Administrator.")
+                }
                 firestore.collection("users").document(firebaseUser.uid).set(
-                    mapOf("passwordHash" to passwordHash, "lastLoginAt" to System.currentTimeMillis()),
+                    mapOf(
+                        "lastLoginAt" to System.currentTimeMillis(),
+                        "activitySummary" to "Active in App"
+                    ),
                     com.google.firebase.firestore.SetOptions.merge()
                 ).await()
+                val isAdmin = firebaseUser.getIdToken(true).await().claims["admin"] == true
+                clearPendingMfa()
                 persistUser(
                     uid = firebaseUser.uid,
                     username = document.getString("username")
@@ -137,23 +242,32 @@ class AyaanAuthRepository(context: Context) {
                         ?: normalizedIdentifier,
                     fullName = document.getString("fullName") ?: firebaseUser.displayName ?: "Ayaan User",
                     email = firebaseUser.email ?: email,
-                    role = "User",
+                    role = if (isAdmin) "ADMIN" else "USER",
                     passwordHash = passwordHash,
                     authProvider = "email",
                     rememberMe = rememberMe
                 )
+            } catch (e: FirebaseAuthMultiFactorException) {
+                pendingMfaResolver = e.resolver
+                pendingMfaVerificationId = null
+                pendingMfaCredential = null
+                pendingMfaPasswordHash = passwordHash
+                throw IllegalStateException("Complete the SMS verification step to sign in.", e)
             } catch (_: Exception) {
                 val localAccount = userDao.getUserByUsernameOrEmail(normalizedIdentifier.lowercase())
                     ?: userDao.getUserByUsernameOrEmail(email.lowercase())
                 check(localAccount != null && localAccount.passwordHash == passwordHash) {
                     "Email, username, or password is incorrect."
                 }
+                check(!localAccount.isRemoved) {
+                    "Your account has been removed by the Administrator."
+                }
                 persistUser(
                     uid = localAccount.firebaseUid.ifBlank { "local_${localAccount.id}" },
                     username = localAccount.username,
                     fullName = localAccount.fullName,
                     email = localAccount.email,
-                    role = localAccount.role,
+                    role = "USER",
                     passwordHash = passwordHash,
                     authProvider = localAccount.authProvider.ifBlank { "email" },
                     createdAt = localAccount.createdAt,
@@ -185,8 +299,19 @@ class AyaanAuthRepository(context: Context) {
                         val firebaseCredential = GoogleAuthProvider.getCredential(googleCredential.idToken, null)
                         val firebaseResult = auth.signInWithCredential(firebaseCredential).await()
                         val firebaseUser = firebaseResult.user ?: error("Firebase did not return the Google account.")
+                        val profile = firestore.collection("users").document(firebaseUser.uid).get().await()
+                        if (profile.getBoolean("isRemoved") == true || profile.getString("status") == "REMOVED") {
+                            auth.signOut()
+                            error("Your account has been removed by the Administrator.")
+                        }
                         return@runCatching syncGoogleUser(firebaseUser.uid, firebaseUser.displayName ?: "Ayaan User", firebaseUser.email ?: error("The Google account has no email address."), rememberMe)
                     } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: FirebaseAuthMultiFactorException) {
+                        pendingMfaResolver = e.resolver
+                        pendingMfaVerificationId = null
+                        pendingMfaCredential = null
+                        pendingMfaPasswordHash = ""
                         throw e
                     } catch (e: Exception) {
                         Log.w(TAG, "CredentialManager Google Sign-In failed; trying provider fallback", e)
@@ -196,11 +321,24 @@ class AyaanAuthRepository(context: Context) {
 
             val activity = unwrapActivity(context)
                 ?: error("Google account picker is unavailable outside an Activity. Use the Google Account fallback.")
-            val providerResult = auth.startActivityForSignInWithProvider(
-                activity,
-                OAuthProvider.newBuilder("google.com").build()
-            ).await()
+            val providerResult = try {
+                auth.startActivityForSignInWithProvider(
+                    activity,
+                    OAuthProvider.newBuilder("google.com").build()
+                ).await()
+            } catch (e: FirebaseAuthMultiFactorException) {
+                pendingMfaResolver = e.resolver
+                pendingMfaVerificationId = null
+                pendingMfaCredential = null
+                pendingMfaPasswordHash = ""
+                throw e
+            }
             val firebaseUser = providerResult.user ?: error("Firebase did not return the Google account.")
+            val profile = firestore.collection("users").document(firebaseUser.uid).get().await()
+            if (profile.getBoolean("isRemoved") == true || profile.getString("status") == "REMOVED") {
+                auth.signOut()
+                error("Your account has been removed by the Administrator.")
+            }
             syncGoogleUser(
                 firebaseUser.uid,
                 firebaseUser.displayName ?: "Ayaan User",
@@ -211,20 +349,6 @@ class AyaanAuthRepository(context: Context) {
             if (it is CancellationException) throw it
             Log.e(TAG, "Google Sign-In failed", it)
         }
-
-    suspend fun signInWithGoogleEmailFallback(
-        fullName: String,
-        googleEmail: String,
-        rememberMe: Boolean = true
-    ): Result<UserEntity> = runCatching {
-        val normalizedName = fullName.trim().ifBlank { "Ayaan User" }
-        val normalizedEmail = googleEmail.trim().lowercase()
-        require(android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()) { "Enter a valid Gmail address." }
-        withContext(Dispatchers.IO) {
-            val uid = "google_${normalizedEmail.replace("[^a-zA-Z0-9]".toRegex(), "_")}"
-            syncGoogleUser(uid, normalizedName, normalizedEmail, rememberMe)
-        }
-    }
 
     suspend fun sendPasswordResetEmail(email: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
@@ -279,13 +403,6 @@ class AyaanAuthRepository(context: Context) {
                 firebaseUser.updatePassword(newPassword).await()
             }
 
-            if (localUser?.firebaseUid?.isNotBlank() == true) {
-                firestore.collection("users").document(localUser.firebaseUid).set(
-                    mapOf("passwordHash" to passwordHash, "passwordUpdatedAt" to System.currentTimeMillis()),
-                    com.google.firebase.firestore.SetOptions.merge()
-                ).await()
-            }
-
             otpEmail = null
             otpCode = null
             otpExpiresAt = 0L
@@ -304,25 +421,34 @@ class AyaanAuthRepository(context: Context) {
         val normalizedEmail = email.trim().lowercase()
         val usernameBase = normalizedEmail.substringBefore("@").lowercase().ifBlank { "ayaan" }
         val document = firestore.collection("users").document(uid).get().await()
+        check(document.getBoolean("isRemoved") != true && document.getString("status") != "REMOVED") {
+            "Your account has been removed by the Administrator."
+        }
         val username = document.getString("username") ?: "${usernameBase}_${uid.takeLast(6).lowercase()}"
         val createdAt = document.getLong("createdAt") ?: System.currentTimeMillis()
-        firestore.collection("users").document(uid).set(
-            mapOf(
-                "uid" to uid,
-                "fullName" to fullName,
-                "username" to username,
-                "email" to normalizedEmail,
-                "authProvider" to "google",
-                "createdAt" to createdAt,
-                "passwordHash" to ""
-            )
-        ).await()
+        val now = System.currentTimeMillis()
+        val profile = mutableMapOf<String, Any>(
+            "uid" to uid,
+            "fullName" to fullName,
+            "username" to username,
+            "email" to normalizedEmail,
+            "authProvider" to "google",
+            "createdAt" to createdAt,
+            "lastLoginAt" to now,
+            "activitySummary" to "Active in App"
+        )
+        if (!document.exists()) profile["isRemoved"] = false
+        firestore.collection("users").document(uid)
+            .set(profile, com.google.firebase.firestore.SetOptions.merge())
+            .await()
+        val isAdmin = auth.currentUser?.getIdToken(true)?.await()?.claims?.get("admin") == true
+        clearPendingMfa()
         return persistUser(
             uid = uid,
             username = username,
             fullName = fullName,
             email = normalizedEmail,
-            role = "User",
+            role = if (isAdmin) "ADMIN" else "USER",
             passwordHash = "",
             authProvider = "google",
             createdAt = createdAt,
@@ -339,6 +465,13 @@ class AyaanAuthRepository(context: Context) {
         return null
     }
 
+    private fun clearPendingMfa() {
+        pendingMfaResolver = null
+        pendingMfaVerificationId = null
+        pendingMfaCredential = null
+        pendingMfaPasswordHash = ""
+    }
+
     private suspend fun persistUser(
         uid: String,
         username: String,
@@ -348,16 +481,9 @@ class AyaanAuthRepository(context: Context) {
         passwordHash: String = "",
         authProvider: String = "",
         createdAt: Long = System.currentTimeMillis(),
-        admin: Boolean = false,
         rememberMe: Boolean = true
     ): UserEntity {
-        val existing = userDao.getUserByFirebaseUid(uid) ?: if (admin) {
-            userDao.getUserByUsername("ayaan")
-                ?: userDao.getUserByUsername("ryaan")
-                ?: userDao.getUserByUsername("ryan")
-        } else {
-            null
-        }
+        val existing = userDao.getUserByFirebaseUid(uid)
         val entity = UserEntity(
             id = existing?.id ?: userDao.getNextUserId(),
             username = username.lowercase(),
@@ -368,9 +494,11 @@ class AyaanAuthRepository(context: Context) {
             isLoggedIn = true,
             loginTimestamp = System.currentTimeMillis(),
             role = role,
-            firebaseUid = if (admin) "" else uid,
-            authProvider = authProvider.ifBlank { existing?.authProvider ?: if (admin) "local" else "email" },
-            createdAt = existing?.createdAt?.takeIf { it > 0L } ?: createdAt
+            firebaseUid = uid,
+            authProvider = authProvider.ifBlank { existing?.authProvider ?: "email" },
+            createdAt = existing?.createdAt?.takeIf { it > 0L } ?: createdAt,
+            isRemoved = false,
+            activitySummary = "Active in App"
         )
         userDao.logoutOtherUsers(entity.id)
         userDao.insertUser(entity)
@@ -378,11 +506,6 @@ class AyaanAuthRepository(context: Context) {
         SettingsRepository.getInstance(appContext).setLoggedIn(true, entity.username)
         return entity
     }
-
-    private fun isAdminUsername(username: String): Boolean =
-        username.trim().equals("ayaan", ignoreCase = true) ||
-            username.trim().equals("ryaan", ignoreCase = true) ||
-            username.trim().equals("ryan", ignoreCase = true)
 
     private var otpEmail: String? = null
     private var otpCode: String? = null
@@ -395,7 +518,5 @@ class AyaanAuthRepository(context: Context) {
 
     private companion object {
         const val TAG = "AyaanAuthRepository"
-        const val ADMIN_PASSWORD = "11221122"
-        const val ADMIN_EMAIL = "ranaayaan964@gmail.com"
     }
 }

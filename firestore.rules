@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function activeUser() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isRemoved', false) == false;
+    }
+
+    function isAdmin() {
+      return activeUser()
+        && ('admin' in request.auth.token)
+        && request.auth.token.admin == true
+        && request.auth.token.email_verified == true
+        && ('firebase' in request.auth.token)
+        && request.auth.token.firebase.sign_in_second_factor != null;
+    }
+
+    match /users/{userId} {
+      allow read: if (signedIn() && request.auth.uid == userId) || isAdmin();
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.get('role', 'USER') == 'USER'
+        && request.resource.data.get('isRemoved', false) == false
+        && request.resource.data.keys().hasOnly([
+          'uid', 'fullName', 'username', 'email', 'authProvider', 'createdAt',
+          'lastLoginAt', 'activitySummary', 'role', 'isRemoved'
+        ]);
+      allow update: if isAdmin()
+        || (signedIn()
+          && request.auth.uid == userId
+          && resource.data.get('isRemoved', false) == false
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'fullName', 'username', 'lastLoginAt', 'activitySummary', 'authProvider'
+          ]));
+      allow delete: if isAdmin();
+    }
+
+    match /admin_messages/{messageId} {
+      allow read: if isAdmin()
+        || (activeUser()
+          && (resource.data.targetAll == true
+            || request.auth.uid in resource.data.targetUsers));
+      allow create: if isAdmin()
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'title', 'body', 'messageType', 'targetAll', 'targetUsers',
+          'senderName', 'senderUid', 'timestamp'
+        ]);
+      allow update, delete: if isAdmin();
+    }
+
+    match /user_reports/{reportId} {
+      allow create: if activeUser()
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.status == 'OPEN'
+        && request.resource.data.adminReply == ''
+        && request.resource.data.keys().hasOnly([
+          'reporterUid', 'reporterUsername', 'reporterEmail', 'reporterFullName',
+          'category', 'subject', 'description', 'status', 'adminReply', 'timestamp'
+        ]);
+      allow read: if isAdmin()
+        || (activeUser() && resource.data.reporterUid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+  }
+}

@@ -8,8 +8,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [UserEntity::class, ChatHistoryEntity::class, QazaPrayerEntity::class],
-    version = 4,
+    entities = [
+        UserEntity::class,
+        ChatHistoryEntity::class,
+        QazaPrayerEntity::class,
+        AdminMessageEntity::class,
+        UserReportEntity::class
+    ],
+    version = 5,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -17,6 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
     abstract fun chatDao(): ChatDao
     abstract fun qazaDao(): QazaDao
+    abstract fun adminDao(): AdminDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -103,6 +110,56 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val userColumns = db.query("PRAGMA table_info(`users`)").use { cursor ->
+                    buildSet {
+                        val nameColumn = cursor.getColumnIndex("name")
+                        while (cursor.moveToNext()) {
+                            if (nameColumn >= 0) add(cursor.getString(nameColumn))
+                        }
+                    }
+                }
+                if ("is_removed" !in userColumns) {
+                    db.execSQL("ALTER TABLE `users` ADD COLUMN `is_removed` INTEGER NOT NULL DEFAULT 0")
+                }
+                if ("activity_summary" !in userColumns) {
+                    db.execSQL("ALTER TABLE `users` ADD COLUMN `activity_summary` TEXT NOT NULL DEFAULT 'Active in App'")
+                }
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `admin_messages` (
+                        `id` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `body` TEXT NOT NULL,
+                        `messageType` TEXT NOT NULL,
+                        `targetAll` INTEGER NOT NULL,
+                        `targetUsersCsv` TEXT NOT NULL,
+                        `senderName` TEXT NOT NULL,
+                        `senderUid` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )""".trimIndent()
+                )
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `user_reports` (
+                        `id` TEXT NOT NULL,
+                        `reporterUid` TEXT NOT NULL,
+                        `reporterUsername` TEXT NOT NULL,
+                        `reporterEmail` TEXT NOT NULL,
+                        `reporterFullName` TEXT NOT NULL,
+                        `category` TEXT NOT NULL,
+                        `subject` TEXT NOT NULL,
+                        `description` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `adminReply` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `is_synced` INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(`id`)
+                    )""".trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -116,6 +173,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_1_2)
                     .addMigrations(MIGRATION_2_3)
                     .addMigrations(MIGRATION_3_4)
+                    .addMigrations(MIGRATION_4_5)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                 INSTANCE = instance

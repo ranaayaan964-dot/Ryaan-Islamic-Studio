@@ -72,6 +72,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.database.AppDatabase
+import com.example.data.repository.AdminRepository
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -149,7 +151,10 @@ fun NextGenDashboardScreen(
     onNavigateToSettings: (() -> Unit)? = null,
     onNavigateToArQibla: (() -> Unit)? = null,
     onNavigateToTahajjud: (() -> Unit)? = null,
-    onNavigateToQaza: (() -> Unit)? = null
+    onNavigateToQaza: (() -> Unit)? = null,
+    onNavigateToAdminInbox: (() -> Unit)? = null,
+    isAdmin: Boolean = false,
+    onOpenAdminDashboard: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -168,6 +173,18 @@ fun NextGenDashboardScreen(
     var showPrayerTools by remember { mutableStateOf(false) }
 
     val settingsRepo = remember { SettingsRepository.getInstance(context) }
+    val adminRepository = remember { AdminRepository(context) }
+    val activeUser by remember {
+        AppDatabase.getInstance(context).userDao().getCurrentUserFlow()
+    }.collectAsStateWithLifecycle(initialValue = null)
+    val adminMessages by adminRepository.observeMessagesForUser(activeUser?.firebaseUid.orEmpty())
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    LaunchedEffect(activeUser?.firebaseUid) {
+        if (!activeUser?.firebaseUid.isNullOrBlank()) {
+            runCatching { adminRepository.syncMessagesForCurrentUser() }
+                .onFailure { android.util.Log.w("NextGenDashboard", "Admin inbox sync failed", it) }
+        }
+    }
     val currentAppTheme by settingsRepo.appThemeFlow.collectAsStateWithLifecycle(initialValue = ThemeType.PEARL_WHITE)
     val glassColors = LocalGlassTheme.current
 
@@ -325,6 +342,43 @@ fun NextGenDashboardScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
+            if (isAdmin && onOpenAdminDashboard != null) {
+                Button(
+                    onClick = onOpenAdminDashboard,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    Text("Return to Admin Command Center")
+                }
+            }
+
+            adminMessages.firstOrNull()?.let { message ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                        .clickable { onNavigateToAdminInbox?.invoke() },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (message.messageType == "WARNING") Color(0xFF7F1D1D) else Color(0xFF064E3B)
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        if (message.messageType == "WARNING") Color(0xFFF87171) else GoldPrimary
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                        Text(
+                            if (message.messageType == "WARNING") "OFFICIAL ADMIN WARNING" else "ADMIN MESSAGE",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(message.title, color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(message.body, color = Color.White, maxLines = 3)
+                        Text("Tap to open Admin Inbox", color = GoldAccent, fontSize = 11.sp)
+                    }
+                }
+            }
+
             // Prominent Full-Width Alert when Azan / Namaz Alarm is actively ringing
             AnimatedVisibility(visible = isAlarmRinging) {
                 Card(
@@ -1300,6 +1354,19 @@ fun NextGenDashboardScreen(
                             }
                         }
                         Text(text = "Track →", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GoldPrimary)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                GlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToAdminInbox?.invoke() },
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                        Text("Admin Inbox & Report Issue", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Read official alerts or report an app problem", fontSize = 10.5.sp, color = GoldAccent)
                     }
                 }
             }

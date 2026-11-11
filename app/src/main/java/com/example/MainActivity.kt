@@ -65,6 +65,7 @@ import com.example.alarm.NamazWorkManagerScheduler
 import com.example.alarm.PrayerAlarmScheduler
 import com.example.alarm.PrayerAlarmService
 import com.example.data.database.AppDatabase
+import com.example.data.repository.AdminRepository
 import com.example.data.model.LocationInfo
 import com.example.data.repository.LocationRepository
 import com.example.service.audio.QuranAudioController
@@ -112,6 +113,7 @@ enum class AppDestination {
     SPLASH,
     LOGIN,
     AGREEMENT,
+    ADMIN_DASHBOARD,
     MAIN_APP
 }
 
@@ -133,7 +135,8 @@ enum class EnterpriseFeatureScreen {
     QURAN_READER,
     FAMILY_TRACKER,
     HIFZ_RECORDING,
-    QAZA_NAMAZ
+    QAZA_NAMAZ,
+    USER_ADMIN_INBOX
 }
 
 class MainActivity : ComponentActivity() {
@@ -188,6 +191,34 @@ class MainActivity : ComponentActivity() {
             val updateState by updateViewModel.uiState.collectAsStateWithLifecycle()
             val themeRepo = remember { com.example.data.repository.ThemeSettingsRepository.getInstance(this@MainActivity) }
             val currentTheme by themeRepo.currentThemeFlow.collectAsStateWithLifecycle(initialValue = com.example.ui.theme.ThemeType.PEARL_WHITE)
+            val activeUser by remember {
+                AppDatabase.getInstance(this@MainActivity).userDao().getCurrentUserFlow()
+            }.collectAsStateWithLifecycle(initialValue = null)
+            var isAdminSession by remember { mutableStateOf(false) }
+
+            LaunchedEffect(currentDestination, activeUser?.firebaseUid) {
+                isAdminSession = if (
+                    currentDestination == AppDestination.ADMIN_DASHBOARD ||
+                    currentDestination == AppDestination.MAIN_APP
+                ) {
+                    runCatching { AdminRepository(this@MainActivity).isAdminSession() }.getOrDefault(false)
+                } else {
+                    false
+                }
+                if (currentDestination == AppDestination.ADMIN_DASHBOARD && !isAdminSession) {
+                    currentDestination = AppDestination.MAIN_APP
+                }
+            }
+
+            val logout = {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                    SessionManager.getInstance(this@MainActivity).logout()
+                    AppDatabase.getInstance(this@MainActivity).userDao().logout()
+                    com.example.data.repository.SettingsRepository.getInstance(this@MainActivity).setLoggedIn(false)
+                }
+                currentDestination = AppDestination.LOGIN
+            }
 
             // Dynamically adjust system bar icon colors according to active theme & screen
             val insetsController = remember(window) { WindowInsetsControllerCompat(window, window.decorView) }
@@ -226,22 +257,33 @@ class MainActivity : ComponentActivity() {
                         }
                         AppDestination.AGREEMENT -> {
                             TermsAgreementScreen(
-                                onAgree = { currentDestination = AppDestination.MAIN_APP }
+                                onAgree = {
+                                    lifecycleScope.launch {
+                                        val admin = runCatching {
+                                            AdminRepository(this@MainActivity).isAdminSession()
+                                        }.getOrDefault(false)
+                                        currentDestination = if (admin) {
+                                            AppDestination.ADMIN_DASHBOARD
+                                        } else {
+                                            AppDestination.MAIN_APP
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                        AppDestination.ADMIN_DASHBOARD -> {
+                            com.example.ui.screens.AdminDashboardScreen(
+                                onOpenUserApp = { currentDestination = AppDestination.MAIN_APP },
+                                onLogout = logout
                             )
                         }
                         AppDestination.MAIN_APP -> {
                             MainAppContainer(
                                 currentLocation = userLocation,
                                 onLocationChange = { userLocation = it },
-                                onLogout = {
-                                    lifecycleScope.launch(Dispatchers.IO) {
-                                        com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                                        SessionManager.getInstance(this@MainActivity).logout()
-                                        AppDatabase.getInstance(this@MainActivity).userDao().logout()
-                                        com.example.data.repository.SettingsRepository.getInstance(this@MainActivity).setLoggedIn(false)
-                                    }
-                                    currentDestination = AppDestination.LOGIN
-                                }
+                                onLogout = logout,
+                                isAdmin = isAdminSession,
+                                onOpenAdminDashboard = { currentDestination = AppDestination.ADMIN_DASHBOARD }
                             )
                         }
                     }
@@ -316,7 +358,9 @@ class MainActivity : ComponentActivity() {
 fun MainAppContainer(
     currentLocation: LocationInfo,
     onLocationChange: (LocationInfo) -> Unit,
-    onLogout: () -> Unit = {}
+    onLogout: () -> Unit = {},
+    isAdmin: Boolean = false,
+    onOpenAdminDashboard: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var activeEnterpriseScreen by remember { mutableStateOf(EnterpriseFeatureScreen.NONE) }
@@ -547,6 +591,11 @@ fun MainAppContainer(
                 EnterpriseFeatureScreen.QAZA_NAMAZ -> {
                     QazaNamazScreen(onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
                 }
+                EnterpriseFeatureScreen.USER_ADMIN_INBOX -> {
+                    com.example.ui.screens.UserAdminInboxScreen(
+                        onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE }
+                    )
+                }
                 EnterpriseFeatureScreen.NONE -> {
                     when (selectedTab) {
                         0 -> NextGenDashboardScreen(
@@ -562,7 +611,10 @@ fun MainAppContainer(
                             onNavigateToSettings = { activeEnterpriseScreen = EnterpriseFeatureScreen.SETTINGS },
                             onNavigateToArQibla = { activeEnterpriseScreen = EnterpriseFeatureScreen.AR_QIBLA },
                             onNavigateToTahajjud = { activeEnterpriseScreen = EnterpriseFeatureScreen.TAHAJJUD_WAKEUP },
-                            onNavigateToQaza = { activeEnterpriseScreen = EnterpriseFeatureScreen.QAZA_NAMAZ }
+                            onNavigateToQaza = { activeEnterpriseScreen = EnterpriseFeatureScreen.QAZA_NAMAZ },
+                            onNavigateToAdminInbox = { activeEnterpriseScreen = EnterpriseFeatureScreen.USER_ADMIN_INBOX },
+                            isAdmin = isAdmin,
+                            onOpenAdminDashboard = onOpenAdminDashboard
                         )
                         1 -> SoundHubScreen(onNavigateBack = { selectedTab = 0 })
                         2 -> AiCompanionScreen()

@@ -52,6 +52,24 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE email = :email COLLATE NOCASE LIMIT 1")
     suspend fun findUserByEmail(email: String): UserEntity?
 
+    @Query("SELECT * FROM users WHERE is_removed = 0 ORDER BY login_timestamp DESC")
+    fun getAllActiveUsersFlow(): Flow<List<UserEntity>>
+
+    @Query("SELECT * FROM users WHERE is_removed = 0 ORDER BY login_timestamp DESC")
+    suspend fun getAllActiveUsers(): List<UserEntity>
+
+    @Query("UPDATE users SET is_removed = 1, is_logged_in = 0, session_token = NULL WHERE firebase_uid = :firebaseUid")
+    suspend fun markUserRemovedByFirebaseUid(firebaseUid: String)
+
+    @Query("UPDATE users SET is_removed = 1, is_logged_in = 0, session_token = NULL WHERE LOWER(username) = LOWER(:identifier) OR LOWER(email) = LOWER(:identifier)")
+    suspend fun markUserRemoved(identifier: String)
+
+    @Query("DELETE FROM users WHERE id = :userId")
+    suspend fun deleteUserById(userId: Long)
+
+    @Query("DELETE FROM users WHERE LOWER(username) = LOWER(:username) OR LOWER(email) = LOWER(:email)")
+    suspend fun deleteUserByUsernameOrEmail(username: String, email: String)
+
     @Query("UPDATE users SET password_hash = :passwordHash WHERE email = :email COLLATE NOCASE")
     suspend fun updatePasswordByEmail(email: String, passwordHash: String)
 

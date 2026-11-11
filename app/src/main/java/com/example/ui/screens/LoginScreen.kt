@@ -118,10 +118,11 @@ fun LoginScreen(
     var resetOtp by remember { mutableStateOf("") }
     var resetNewPassword by remember { mutableStateOf("") }
     var resetOtpSent by remember { mutableStateOf(false) }
-    var showGoogleFallbackDialog by remember { mutableStateOf(false) }
-    var googleFallbackName by remember { mutableStateOf("") }
-    var googleFallbackEmail by remember { mutableStateOf("") }
     var isSendingReset by remember { mutableStateOf(false) }
+    var showMfaDialog by remember { mutableStateOf(false) }
+    var mfaCode by remember { mutableStateOf("") }
+    var mfaMessage by remember { mutableStateOf<String?>(null) }
+    var isVerifyingMfa by remember { mutableStateOf(false) }
     var isSignUp by remember { mutableStateOf(false) }
     var fullName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -213,7 +214,20 @@ fun LoginScreen(
             }
             isLoading = false
             result.onSuccess { onLoginSuccess() }
-                .onFailure { errorMessage = it.localizedMessage ?: "Authentication failed. Please try again." }
+                .onFailure { error ->
+                    if (authRepository.hasPendingMfaSignIn()) {
+                        authRepository.sendPendingMfaCode()
+                            .onSuccess { message ->
+                                mfaMessage = message
+                                showMfaDialog = true
+                            }
+                            .onFailure {
+                                errorMessage = it.localizedMessage ?: "Could not start multi-factor verification."
+                            }
+                    } else {
+                        errorMessage = error.localizedMessage ?: "Authentication failed. Please try again."
+                    }
+                }
         }
     }
 
@@ -224,10 +238,20 @@ fun LoginScreen(
             val result = authRepository.signInWithGoogle(context, rememberMe)
             isGoogleLoading = false
             result.onSuccess { onLoginSuccess() }
-                .onFailure {
-                    googleFallbackName = fullName.ifBlank { "Ayaan User" }
-                    googleFallbackEmail = email
-                    showGoogleFallbackDialog = true
+                .onFailure { error ->
+                    if (authRepository.hasPendingMfaSignIn()) {
+                        authRepository.sendPendingMfaCode()
+                            .onSuccess { message ->
+                                mfaMessage = message
+                                showMfaDialog = true
+                            }
+                            .onFailure {
+                                errorMessage = it.localizedMessage ?: "Could not start multi-factor verification."
+                            }
+                    } else {
+                        errorMessage = error.localizedMessage
+                            ?: "Google Sign-In failed. Verify the account through Google's sign-in provider."
+                    }
                 }
         }
     }
@@ -720,55 +744,6 @@ fun LoginScreen(
                     }
                 }
 
-                if (showGoogleFallbackDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showGoogleFallbackDialog = false },
-                        title = { Text("Continue with Google Account") },
-                        text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("Enter the Google account details to sync this device with Ayaan Islamic Studio.")
-                                OutlinedTextField(
-                                    value = googleFallbackName,
-                                    onValueChange = { googleFallbackName = it },
-                                    label = { Text("Google name") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                OutlinedTextField(
-                                    value = googleFallbackEmail,
-                                    onValueChange = { googleFallbackEmail = it },
-                                    label = { Text("Gmail address") },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                isGoogleLoading = true
-                                scope.launch {
-                                    val result = authRepository.signInWithGoogleEmailFallback(
-                                        googleFallbackName,
-                                        googleFallbackEmail,
-                                        rememberMe
-                                    )
-                                    isGoogleLoading = false
-                                    if (result.isSuccess) {
-                                        showGoogleFallbackDialog = false
-                                        onLoginSuccess()
-                                    } else {
-                                        errorMessage = result.exceptionOrNull()?.localizedMessage ?: "Google account sign-in failed."
-                                    }
-                                }
-                            }) { Text("Sign in with Google Account") }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showGoogleFallbackDialog = false }) { Text("Cancel") }
-                        }
-                    )
-                }
-
                 if (showResetDialog) {
                     AlertDialog(
                         onDismissRequest = { if (!isSendingReset) showResetDialog = false },
@@ -816,6 +791,69 @@ fun LoginScreen(
                                             visualTransformation = PasswordVisualTransformation(),
                                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                                             modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+
+                                    if (showMfaDialog) {
+                                        AlertDialog(
+                                            onDismissRequest = {
+                                                if (!isVerifyingMfa) {
+                                                    showMfaDialog = false
+                                                    authRepository.cancelPendingMfaSignIn()
+                                                }
+                                            },
+                                            title = { Text("Account Verification") },
+                                            text = {
+                                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                    Text(
+                                                        "Enter the Firebase SMS verification code sent to " +
+                                                            (authRepository.pendingMfaPhoneLabel() ?: "your enrolled phone")
+                                                    )
+                                                    Text("Your mobile carrier may charge for SMS messages.", fontSize = 12.sp, color = SlateMuted)
+                                                    OutlinedTextField(
+                                                        value = mfaCode,
+                                                        onValueChange = { mfaCode = it.filter(Char::isDigit).take(6) },
+                                                        label = { Text("6-digit verification code") },
+                                                        singleLine = true,
+                                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                    mfaMessage?.let { Text(it, color = SlateMuted) }
+                                                }
+                                            },
+                                            confirmButton = {
+                                                TextButton(
+                                                    enabled = !isVerifyingMfa,
+                                                    onClick = {
+                                                        isVerifyingMfa = true
+                                                        scope.launch {
+                                                            authRepository.completePendingMfaSignIn(mfaCode, rememberMe)
+                                                                .onSuccess {
+                                                                    isVerifyingMfa = false
+                                                                    showMfaDialog = false
+                                                                    mfaCode = ""
+                                                                    onLoginSuccess()
+                                                                }
+                                                                .onFailure {
+                                                                    isVerifyingMfa = false
+                                                                    mfaMessage = it.localizedMessage ?: "Verification failed."
+                                                                }
+                                                        }
+                                                    }
+                                                ) {
+                                                    Text(if (isVerifyingMfa) "Verifying…" else "Verify & Sign In")
+                                                }
+                                            },
+                                            dismissButton = {
+                                                TextButton(
+                                                    enabled = !isVerifyingMfa,
+                                                    onClick = {
+                                                        showMfaDialog = false
+                                                        mfaCode = ""
+                                                        authRepository.cancelPendingMfaSignIn()
+                                                    }
+                                                ) { Text("Cancel") }
+                                            }
                                         )
                                     }
                                 }
