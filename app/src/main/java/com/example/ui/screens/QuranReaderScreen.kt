@@ -703,7 +703,6 @@ fun QuranReaderScreen(
                         }
                     }
                     }
-                    }
                 } else {
                     // Error state with retry
                     Box(
@@ -1474,4 +1473,5 @@ fun SurahFooterNavigation(
         }
     }
 }
+
 
