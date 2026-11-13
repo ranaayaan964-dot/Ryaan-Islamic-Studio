@@ -637,9 +637,7 @@ fun QuranReaderScreen(
                                     onNextSurah = { currentJuzNumber = (currentJuzNumber + 1).coerceAtMost(30) }
                                 )
                             }
-                        }
-                    }
-                } else {
+                        } else {
                         // Header 1: Surah Information Banner Card with Audio Stream Action
                         item {
                             val isSurahPlaying = isAudioPlaying && activeAudioSurahId == currentData.info.number
@@ -703,7 +701,7 @@ fun QuranReaderScreen(
                                 }
                             )
                         }
-                        }
+                    }
                     }
                 } else {
                     // Error state with retry
@@ -1475,6 +1473,4 @@ fun SurahFooterNavigation(
         }
     }
 }
-
-
 
