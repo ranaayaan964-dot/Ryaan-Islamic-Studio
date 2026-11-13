@@ -94,6 +94,8 @@ import com.example.data.quran.repository.QuranRepository
 import com.example.data.quran.seed.QuranSeedData
 import com.example.data.remote.GroqHifzClient
 import com.example.data.remote.GroqHifzResult
+import com.example.data.repository.ProSubscriptionRepository
+import com.example.ui.components.ProUpgradeDialog
 import com.example.ui.theme.CharcoalPrimary
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.DeepRoyalEmerald
@@ -121,10 +123,13 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HifzRecordingScreen(
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onOpenProActivation: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
+    var showProUpgradeDialog by remember { mutableStateOf(false) }
     val audioRecorder = remember { AudioRecorderHelper(context) }
     val quranRepository = remember { QuranRepository(context) }
 
@@ -563,6 +568,10 @@ fun HifzRecordingScreen(
                                         permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                         return@detectTapGestures
                                     }
+                                    if (!proRepository.canUseFeatureOrConsume("ai_hifz", 3)) {
+                                        showProUpgradeDialog = true
+                                        return@detectTapGestures
+                                    }
 
                                     isRecording = true
                                     hifzResult = null
@@ -972,5 +981,15 @@ fun HifzRecordingScreen(
                 }
             }
         }
+    }
+    if (showProUpgradeDialog) {
+        ProUpgradeDialog(
+            message = "You have reached the 3 free Hifz sessions for today. Upgrade to Ayaan Pro for unlimited practice.",
+            onDismiss = { showProUpgradeDialog = false },
+            onUpgrade = {
+                showProUpgradeDialog = false
+                onOpenProActivation()
+            }
+        )
     }
 }

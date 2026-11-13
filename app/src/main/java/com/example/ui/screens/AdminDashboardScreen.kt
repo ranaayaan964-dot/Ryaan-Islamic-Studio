@@ -27,12 +27,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.database.UserEntity
 import com.example.data.database.UserReportEntity
 import com.example.data.repository.AdminRepository
+import com.example.data.database.ProLicenseKeyEntity
+import com.example.data.database.ProPlanTier
+import com.example.data.repository.ProSubscriptionRepository
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -44,6 +49,8 @@ fun AdminDashboardScreen(
 ) {
     val context = LocalContext.current
     val repository = remember(context) { AdminRepository(context) }
+    val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
+    val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val users by repository.observeAllUsers().collectAsStateWithLifecycle(emptyList())
     val messages by repository.observeAllMessages().collectAsStateWithLifecycle(emptyList())
@@ -60,6 +67,11 @@ fun AdminDashboardScreen(
     var search by remember { mutableStateOf("") }
     var removeCandidate by remember { mutableStateOf<UserEntity?>(null) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
+    var selectedProTier by remember { mutableStateOf(ProPlanTier.MONTHLY) }
+    var buyerNote by remember { mutableStateOf("") }
+    var generatedKey by remember { mutableStateOf<ProLicenseKeyEntity?>(null) }
+    var keyFilter by remember { mutableStateOf("All Keys") }
+    val proKeys by proRepository.observeKeys().collectAsStateWithLifecycle(emptyList())
 
     LaunchedEffect(repository) {
         try {
@@ -70,6 +82,7 @@ fun AdminDashboardScreen(
                 repository.syncUsersFromFirestore()
                 repository.syncMessagesForAdmin()
                 repository.syncReportsForAdmin()
+                proRepository.syncKeysForAdmin()
             }
         } catch (e: Exception) {
             error = e.localizedMessage ?: "Unable to load administrator data."
@@ -84,6 +97,7 @@ fun AdminDashboardScreen(
             Column(Modifier.weight(1f)) {
                 Text("AYAAN ADMIN COMMAND CENTER", style = MaterialTheme.typography.titleLarge)
                 Text("Firebase admin claim • MFA verified")
+                Text("Authorized accounts: ${AdminRepository.AUTHORIZED_ADMIN_EMAILS.joinToString()}")
             }
             TextButton(onClick = onOpenUserApp) { Text("Open User App") }
             TextButton(onClick = {
@@ -92,6 +106,7 @@ fun AdminDashboardScreen(
                         repository.syncUsersFromFirestore()
                         repository.syncMessagesForAdmin()
                         repository.syncReportsForAdmin()
+                        proRepository.syncKeysForAdmin()
                         actionMessage = "Admin data refreshed."
                     } catch (e: Exception) {
                         actionMessage = e.localizedMessage ?: "Admin data refresh failed."
@@ -112,7 +127,7 @@ fun AdminDashboardScreen(
                 Text("Messages: ${messages.size}")
             }
             TabRow(selectedTabIndex = selectedTab) {
-                listOf("Users", "Send Message", "Reports", "History").forEachIndexed { index, label ->
+                listOf("Users", "Send Message", "Reports", "History", "AI Pro Keys").forEachIndexed { index, label ->
                     Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(label) })
                 }
             }
@@ -244,7 +259,7 @@ fun AdminDashboardScreen(
                         )
                     }
                 }
-                else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                3 -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(messages, key = { it.id }) { message ->
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(12.dp)) {
@@ -267,9 +282,43 @@ fun AdminDashboardScreen(
                         }
                     }
                 }
+                4 -> ProKeysAdminPanel(
+                    tiers = ProPlanTier.values().toList(),
+                    selectedTier = selectedProTier,
+                    onSelectTier = { selectedProTier = it },
+                    buyerNote = buyerNote,
+                    onBuyerNoteChange = { buyerNote = it },
+                    generatedKey = generatedKey,
+                    keys = proKeys,
+                    keyFilter = keyFilter,
+                    onSelectFilter = { keyFilter = it },
+                    onGenerate = {
+                        scope.launch {
+                            proRepository.generateProKeyWithGroqAi(selectedProTier, buyerNote).fold(
+                                onSuccess = { key ->
+                                    generatedKey = key
+                                    actionMessage = "Single-use Pro key generated and synced."
+                                },
+                                onFailure = { error ->
+                                    actionMessage = error.localizedMessage ?: "Pro key generation failed."
+                                }
+                            )
+                        }
+                    },
+                    onCopy = { key ->
+                        clipboard.setText(AnnotatedString(key))
+                        actionMessage = "Pro key copied."
+                    },
+                    onDelete = { key ->
+                        scope.launch {
+                            runCatching { proRepository.deleteProKey(key.licenseKey) }
+                                .onSuccess { actionMessage = "Unused key deleted." }
+                                .onFailure { actionMessage = it.localizedMessage ?: "Key could not be deleted." }
+                        }
+                    }
+                )
             }
         }
-    }
 
     removeCandidate?.let { user ->
         AlertDialog(
@@ -292,6 +341,92 @@ fun AdminDashboardScreen(
             dismissButton = { TextButton(onClick = { removeCandidate = null }) { Text("Cancel") } }
         )
     }
+    }
+}
+
+@Composable
+private fun ProKeysAdminPanel(
+    tiers: List<ProPlanTier>,
+    selectedTier: ProPlanTier,
+    onSelectTier: (ProPlanTier) -> Unit,
+    buyerNote: String,
+    onBuyerNoteChange: (String) -> Unit,
+    generatedKey: ProLicenseKeyEntity?,
+    keys: List<ProLicenseKeyEntity>,
+    keyFilter: String,
+    onSelectFilter: (String) -> Unit,
+    onGenerate: () -> Unit,
+    onCopy: (String) -> Unit,
+    onDelete: (ProLicenseKeyEntity) -> Unit
+) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Create a single-use activation key", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                tiers.forEach { tier ->
+                    FilterChip(
+                        selected = selectedTier == tier,
+                        onClick = { onSelectTier(tier) },
+                        label = { Text("${tier.displayName.removeSuffix(" Pro Plan")} • ${tier.priceFormatted}") }
+                    )
+                }
+            }
+            OutlinedTextField(
+                value = buyerNote,
+                onValueChange = onBuyerNoteChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Buyer name / optional note") },
+                singleLine = true
+            )
+            Button(onClick = onGenerate, modifier = Modifier.fillMaxWidth()) {
+                Text("Generate Single-Use Pro Key")
+            }
+            generatedKey?.let { key ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("New key: ${key.licenseKey}", style = MaterialTheme.typography.titleMedium)
+                        Text(key.aiNote)
+                        TextButton(onClick = { onCopy(key.licenseKey) }) { Text("Copy Key") }
+                    }
+                }
+            }
+            Text("Generated keys", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("All Keys", "Available", "Redeemed").forEach { filter ->
+                    FilterChip(
+                        selected = keyFilter == filter,
+                        onClick = { onSelectFilter(filter) },
+                        label = { Text(filter) }
+                    )
+                }
+            }
+            val visibleKeys = keys.filter {
+                when (keyFilter) {
+                    "Available" -> !it.isUsed
+                    "Redeemed" -> it.isUsed
+                    else -> true
+                }
+            }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(visibleKeys, key = { it.licenseKey }) { key ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(key.licenseKey, style = MaterialTheme.typography.titleMedium)
+                            Text("${key.planTier} • ${key.durationDays} days • Rs. ${key.pricePkr}")
+                            Text(if (key.isUsed) "USED & LOCKED" else "AVAILABLE (UNUSED)")
+                            if (key.isUsed) {
+                                Text("Used by: @${key.usedByUsername} (${key.usedByEmail})")
+                                Text("Activated: ${formatTimestamp(key.activatedAt)} • Expires: ${formatTimestamp(key.expiresAt)}")
+                            }
+                            Row {
+                                TextButton(onClick = { onCopy(key.licenseKey) }) { Text("Copy Key") }
+                                if (!key.isUsed) TextButton(onClick = { onDelete(key) }) { Text("Delete / Revoke") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -309,7 +444,12 @@ private fun ReportModerationCard(
             Text("${report.category} • ${formatTimestamp(report.timestamp)}")
             Text(report.description)
             if (report.adminReply.isNotBlank()) Text("Previous reply: ${report.adminReply}")
-            OutlinedTextField(reply, onReplyChange, Modifier.fillMaxWidth(), label = { Text("Admin reply") })
+            OutlinedTextField(
+                value = reply,
+                onValueChange = { reply = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Admin reply") }
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = { onReply("RESOLVED", reply) }) { Text("Reply & Resolve") }
                 TextButton(onClick = { onReply("IN_PROGRESS", reply) }) { Text("Reply") }

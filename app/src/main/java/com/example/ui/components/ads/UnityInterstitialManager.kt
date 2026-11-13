@@ -5,12 +5,15 @@ import android.util.Log
 import com.unity3d.ads.IUnityAdsLoadListener
 import com.unity3d.ads.IUnityAdsShowListener
 import com.unity3d.ads.UnityAds
+import com.example.data.repository.ProSubscriptionRepository
+import java.util.concurrent.ConcurrentHashMap
 
 object UnityInterstitialManager {
     private const val TAG = "UnityInterstitial"
-    private val loadedPlacements = mutableSetOf<String>()
+    private val loadedPlacements = ConcurrentHashMap.newKeySet<String>()
 
     fun preloadInterstitial(activity: Activity, placementId: String = "BP_Interstitial_Android") {
+        if (ProSubscriptionRepository.getInstance(activity).proStatusFlow.value.isProActive) return
         if (loadedPlacements.contains(placementId)) return
 
         UnityAds.load(placementId, object : IUnityAdsLoadListener {
@@ -35,6 +38,10 @@ object UnityInterstitialManager {
         placementId: String = "BP_Interstitial_Android",
         onAdClosed: () -> Unit = {}
     ) {
+        if (ProSubscriptionRepository.getInstance(activity).proStatusFlow.value.isProActive) {
+            onAdClosed()
+            return
+        }
         if (!loadedPlacements.contains(placementId)) {
             preloadInterstitial(activity, placementId)
             onAdClosed()

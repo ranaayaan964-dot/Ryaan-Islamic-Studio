@@ -81,6 +81,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.example.ui.components.GlassCard
+import com.example.ui.components.ProUpgradeDialog
+import com.example.data.repository.ProSubscriptionRepository
 import com.example.ui.theme.DarkNavyBackground
 import com.example.ui.theme.DarkNavySurfaceVariant
 import com.example.ui.theme.EmeraldAccent
@@ -100,9 +102,13 @@ data class SurahPracticeItem(
 )
 
 @Composable
-fun HifzCheckerScreen() {
+fun HifzCheckerScreen(
+    onOpenProActivation: () -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
+    var showProUpgradeDialog by remember { mutableStateOf(false) }
     var hasMicPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
@@ -245,6 +251,10 @@ fun HifzCheckerScreen() {
     }
 
     fun startRecitationAnalysis() {
+        if (!proRepository.canUseFeatureOrConsume("ai_hifz", 3)) {
+            showProUpgradeDialog = true
+            return
+        }
         isRecording = true
         analysisDone = false
         recitationResult = null
@@ -407,7 +417,13 @@ fun HifzCheckerScreen() {
                             .clip(RoundedCornerShape(12.dp))
                             .background(Color(0x3310B981))
                             .border(1.dp, Color(0xFF10B981), RoundedCornerShape(12.dp))
-                            .clickable { isLiveVoiceTutorMode = true }
+                            .clickable {
+                                if (proRepository.canUseFeatureOrConsume("ai_hifz", 3)) {
+                                    isLiveVoiceTutorMode = true
+                                } else {
+                                    showProUpgradeDialog = true
+                                }
+                            }
                             .padding(horizontal = 10.dp, vertical = 7.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -427,6 +443,7 @@ fun HifzCheckerScreen() {
                         }
                     }
                 }
+
             }
 
             // Surah Selector Carousel
@@ -788,5 +805,15 @@ fun HifzCheckerScreen() {
                 }
             }
         }
+    }
+    if (showProUpgradeDialog) {
+        ProUpgradeDialog(
+            message = "You have reached the 3 free Hifz and Live Tutor sessions for today. Upgrade to Ayaan Pro for unlimited practice.",
+            onDismiss = { showProUpgradeDialog = false },
+            onUpgrade = {
+                showProUpgradeDialog = false
+                onOpenProActivation()
+            }
+        )
     }
 }

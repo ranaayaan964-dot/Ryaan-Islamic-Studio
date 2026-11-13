@@ -101,8 +101,8 @@ object TajweedColorRules {
         val ikhfaColor = if (isDark) ColorIkhfaIdghamDark else ColorIkhfaIdghamLight
         val iqlabColor = if (isDark) ColorIqlabDark else ColorIqlabLight
 
-        val qalqalahChars = setOf('ق', 'ط', 'ب', 'ج', 'د')
-        val maddChars = setOf('~', 'آ', '\u0653', '\u0670')
+        val qalqalahChars = setOf('\u0642', '\u0637', '\u0628', '\u062C', '\u062F')
+        val maddChars = setOf('~', '\u0622', '\u0653', '\u0670')
 
         return buildAnnotatedString {
             var i = 0
@@ -136,7 +136,7 @@ object TajweedColorRules {
                 }
 
                 // Check Ghunnah: Noon (ن) or Meem (م) followed by Shaddah (ّ)
-                if ((ch == 'ن' || ch == 'م') && i + 1 < len && arabicText[i + 1] == '\u0651') {
+                if ((ch == '\u0646' || ch == '\u0645') && i + 1 < len && arabicText[i + 1] == '\u0651') {
                     val start = i
                     // span across the letter, shaddah, and possible harakah
                     var end = i + 2

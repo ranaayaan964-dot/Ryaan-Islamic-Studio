@@ -73,6 +73,23 @@ interface UserDao {
     @Query("UPDATE users SET password_hash = :passwordHash WHERE email = :email COLLATE NOCASE")
     suspend fun updatePasswordByEmail(email: String, passwordHash: String)
 
+    @Query("UPDATE users SET subscription_plan = :plan, pro_expires_at = :expiresAt, activated_pro_key = :licenseKey WHERE LOWER(username) = LOWER(:username) OR LOWER(email) = LOWER(:email)")
+    suspend fun updateUserProSubscription(
+        username: String,
+        email: String,
+        plan: String,
+        expiresAt: Long,
+        licenseKey: String
+    )
+
+    @Query("UPDATE users SET subscription_plan = :plan, pro_expires_at = :expiresAt, activated_pro_key = :licenseKey WHERE firebase_uid = :firebaseUid")
+    suspend fun updateUserProSubscriptionByFirebaseUid(
+        firebaseUid: String,
+        plan: String,
+        expiresAt: Long,
+        licenseKey: String
+    )
+
     @Query("SELECT COALESCE(MAX(id), 0) + 1 FROM users")
     suspend fun getNextUserId(): Long
 

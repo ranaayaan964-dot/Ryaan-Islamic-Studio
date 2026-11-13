@@ -27,22 +27,27 @@ class BaseApplication : Application() {
         Thread.setDefaultUncaughtExceptionHandler(crashHandler)
         Log.i(TAG, "GlobalCrashHandler registered successfully. Zero-Crash policy active. Previous handler: ${previousHandler?.javaClass?.name ?: "none"}")
 
-        UnityAds.initialize(
-            applicationContext,
-            BuildConfig.UNITY_GAME_ID.ifBlank { "800424750" },
-            false,
-            object : IUnityAdsInitializationListener {
-                override fun onInitializationComplete() {
-                    Log.i("UnityAdsInit", "Unity Ads SDK initialized successfully (Live Mode)")
-                }
+        val unityGameId = BuildConfig.UNITY_GAME_ID.trim()
+        if (unityGameId.isNotEmpty()) {
+            UnityAds.initialize(
+                applicationContext,
+                unityGameId,
+                false,
+                object : IUnityAdsInitializationListener {
+                    override fun onInitializationComplete() {
+                        Log.i("UnityAdsInit", "Unity Ads SDK initialized successfully (Live Mode)")
+                    }
 
-                override fun onInitializationFailed(
-                    error: UnityAds.UnityAdsInitializationError?,
-                    message: String?
-                ) {
-                    Log.e("UnityAdsInit", "Unity Ads initialization failed: $message (Error: $error)")
+                    override fun onInitializationFailed(
+                        error: UnityAds.UnityAdsInitializationError?,
+                        message: String?
+                    ) {
+                        Log.e("UnityAdsInit", "Unity Ads initialization failed: $message (Error: $error)")
+                    }
                 }
-            }
-        )
+            )
+        } else {
+            Log.w(TAG, "Unity Ads skipped because UNITY_GAME_ID is not configured.")
+        }
     }
 }

@@ -1,4 +1,4 @@
-package com.example.ui.screens
+﻿package com.example.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -77,7 +77,7 @@ fun UserAdminInboxScreen(onNavigateBack: () -> Unit) {
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Report Issue") })
         }
         notice?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (user == null || uid.isBlank() || authenticatedUid != uid) {
+        if (user == null) {
             Text("A verified Firebase account is required to read messages or send a report.")
         } else if (selectedTab == 0) {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -122,10 +122,7 @@ fun UserAdminInboxScreen(onNavigateBack: () -> Unit) {
                             notice = "Enter a subject and problem description."
                             return@Button
                         }
-                        if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid != activeUser.firebaseUid) {
-                            notice = "Sign in with a verified Firebase account before submitting a report."
-                            return@Button
-                        }
+                        
                         scope.launch {
                             try {
                                 repository.submitUserReport(activeUser, category, subject, description)
@@ -154,10 +151,11 @@ fun UserAdminInboxScreen(onNavigateBack: () -> Unit) {
 private fun UserReportCard(report: UserReportEntity) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(10.dp)) {
-            Text("${report.subject} • ${report.status}", style = MaterialTheme.typography.titleSmall)
-            Text("${report.category} • ${DateFormat.getDateTimeInstance().format(Date(report.timestamp))}")
+            Text("${report.subject} â€¢ ${report.status}", style = MaterialTheme.typography.titleSmall)
+            Text("${report.category} â€¢ ${DateFormat.getDateTimeInstance().format(Date(report.timestamp))}")
             Text(report.description)
             if (report.adminReply.isNotBlank()) Text("Admin reply: ${report.adminReply}")
         }
     }
 }
+

@@ -74,6 +74,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.database.AppDatabase
 import com.example.data.repository.AdminRepository
+import com.example.data.repository.ProSubscriptionRepository
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -153,6 +154,7 @@ fun NextGenDashboardScreen(
     onNavigateToTahajjud: (() -> Unit)? = null,
     onNavigateToQaza: (() -> Unit)? = null,
     onNavigateToAdminInbox: (() -> Unit)? = null,
+    onOpenProActivation: () -> Unit = {},
     isAdmin: Boolean = false,
     onOpenAdminDashboard: (() -> Unit)? = null
 ) {
@@ -174,6 +176,8 @@ fun NextGenDashboardScreen(
 
     val settingsRepo = remember { SettingsRepository.getInstance(context) }
     val adminRepository = remember { AdminRepository(context) }
+    val proRepository = remember { ProSubscriptionRepository.getInstance(context) }
+    val proStatus by proRepository.proStatusFlow.collectAsStateWithLifecycle()
     val activeUser by remember {
         AppDatabase.getInstance(context).userDao().getCurrentUserFlow()
     }.collectAsStateWithLifecycle(initialValue = null)
@@ -348,6 +352,30 @@ fun NextGenDashboardScreen(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                 ) {
                     Text("Return to Admin Command Center")
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).clickable(onClick = onOpenProActivation),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (proStatus.isProActive) Color(0xFF064E3B) else Color(0xFF123C35)
+                ),
+                border = BorderStroke(1.dp, GoldPrimary),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                    Text(
+                        if (proStatus.isProActive) "👑 PRO ACTIVE • ${proStatus.remainingDays} days left"
+                        else "👑 FREE PLAN • Tap to Activate Pro Key",
+                        color = GoldPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        if (proStatus.isProActive) "Unlimited access • Ad-free"
+                        else "Unlock unlimited features and remove ads",
+                        color = Color.White,
+                        fontSize = 12.sp
+                    )
                 }
             }
 

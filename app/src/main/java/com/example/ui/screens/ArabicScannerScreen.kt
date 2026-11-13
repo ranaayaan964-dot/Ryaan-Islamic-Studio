@@ -85,7 +85,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.remote.DualAiScholarEngine
+import com.example.data.repository.ProSubscriptionRepository
 import com.example.ui.components.NeumorphicCard
+import com.example.ui.components.ProUpgradeDialog
 import com.example.ui.theme.CharcoalPrimary
 import com.example.ui.theme.CharcoalSecondary
 import com.example.ui.theme.DeepRoyalEmerald
@@ -115,17 +117,20 @@ data class OcrScanResult(
  */
 @Composable
 fun ArabicScannerScreen(
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onOpenProActivation: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
+    val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
 
     var hasCameraPermission by remember { mutableStateOf(false) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var isProcessingImage by remember { mutableStateOf(false) }
     var scanResult by remember { mutableStateOf<OcrScanResult?>(null) }
+    var showProUpgradeDialog by remember { mutableStateOf(false) }
 
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
@@ -166,6 +171,10 @@ fun ArabicScannerScreen(
     fun takePhotoAndAnalyze() {
         val capture = imageCapture ?: return
         if (isProcessingImage) return
+        if (!proRepository.canUseFeatureOrConsume("scan_dream", 2)) {
+            showProUpgradeDialog = true
+            return
+        }
         isProcessingImage = true
 
         capture.takePicture(
@@ -605,6 +614,16 @@ fun ArabicScannerScreen(
                 }
             }
         }
+    }
+    if (showProUpgradeDialog) {
+        ProUpgradeDialog(
+            message = "You have used the 2 free OCR and Tabeer analyses for today. Upgrade to Ayaan Pro for unlimited access.",
+            onDismiss = { showProUpgradeDialog = false },
+            onUpgrade = {
+                showProUpgradeDialog = false
+                onOpenProActivation()
+            }
+        )
     }
 }
 

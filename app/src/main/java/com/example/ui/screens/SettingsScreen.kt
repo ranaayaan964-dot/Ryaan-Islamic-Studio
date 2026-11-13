@@ -60,8 +60,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.database.AppDatabase
 import com.example.data.repository.SettingsRepository
+import com.example.data.repository.ProSubscriptionRepository
 import com.example.security.SessionManager
 import com.example.ui.theme.CharcoalPrimary
 import com.example.ui.theme.CrimsonError
@@ -93,11 +95,14 @@ private data class ProfileState(
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onOpenProActivation: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val glassTheme = LocalGlassTheme.current
+    val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
+    val proStatus by proRepository.proStatusFlow.collectAsStateWithLifecycle()
     var cachedUsername by remember { mutableStateOf("") }
     var profileFullName by remember { mutableStateOf("Ayaan") }
     var profileRole by remember { mutableStateOf("System Administrator") }
@@ -260,6 +265,23 @@ fun SettingsScreen(
                             )
                         }
                     }
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable(onClick = onOpenProActivation),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = if (proStatus.isProActive) Color(0xFFE7F8F0) else PureWhite),
+                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(18.dp)) {
+                    Text(
+                        if (proStatus.isProActive) "👑 ${proStatus.activePlanName} • ${proStatus.remainingDays} days left"
+                        else "👑 FREE PLAN — Tap to Activate Pro Key",
+                        color = DeepRoyalEmerald,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text("Unlimited access and no ads with Ayaan Pro", color = SlateMuted, fontSize = 12.sp)
                 }
             }
 

@@ -43,6 +43,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.repository.ProSubscriptionRepository
+import com.example.ui.components.ProUpgradeDialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,9 +75,13 @@ import java.util.Locale
  */
 @Composable
 fun ZakatCalculatorScreen(
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onOpenProActivation: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
+    val proStatus by proRepository.proStatusFlow.collectAsStateWithLifecycle()
+    var showProUpgradeDialog by remember { mutableStateOf(false) }
 
     // Live market benchmarks per gram (USD)
     val goldPricePerGram = 75.50 // Nisab: 85g = $6,417.50
@@ -254,6 +261,9 @@ fun ZakatCalculatorScreen(
             // PDF Export Button
             Button(
                 onClick = {
+                    if (!proStatus.isProActive) {
+                        showProUpgradeDialog = true
+                    } else {
                     val reportData = ZakatReportData(
                         currency = "USD",
                         currencySymbol = "$",
@@ -277,6 +287,7 @@ fun ZakatCalculatorScreen(
                         donorName = "Honorable Believer"
                     )
                     PdfReportGenerator.generateAndOpenZakatPdf(context, reportData)
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -310,6 +321,16 @@ fun ZakatCalculatorScreen(
 
             Spacer(modifier = Modifier.height(30.dp))
         }
+    }
+    if (showProUpgradeDialog) {
+        ProUpgradeDialog(
+            message = "Official Zakat PDF reports are an Ayaan Pro feature. Your Zakat calculation remains free.",
+            onDismiss = { showProUpgradeDialog = false },
+            onUpgrade = {
+                showProUpgradeDialog = false
+                onOpenProActivation()
+            }
+        )
     }
 }
 

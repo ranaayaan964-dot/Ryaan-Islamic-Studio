@@ -31,6 +31,7 @@ val geminiApiKey = resolveSecret("GEMINI_API_KEY")
 val groqApiKey = resolveSecret("GROQ_API_KEY")
 val gmailSenderEmail = resolveSecret("GMAIL_SENDER_EMAIL").ifBlank { "ayianrana20133@gmail.com" }
 val gmailAppPassword = resolveSecret("GMAIL_16_DIGIT_APP_PASSWORD")
+val proSupportEmail = resolveSecret("PRO_SUPPORT_EMAIL").ifBlank { "ranasalar964@gmail.com" }
 val unityGameId = resolveSecret("UNITY_GAME_ID").ifBlank { "800424750" }
 
 android {
@@ -50,6 +51,7 @@ android {
     buildConfigField("String", "GROQ_API_KEY", groqApiKey.toBuildConfigStringLiteral())
     buildConfigField("String", "GMAIL_SENDER_EMAIL", gmailSenderEmail.toBuildConfigStringLiteral())
     buildConfigField("String", "GMAIL_16_DIGIT_APP_PASSWORD", gmailAppPassword.toBuildConfigStringLiteral())
+    buildConfigField("String", "PRO_SUPPORT_EMAIL", proSupportEmail.toBuildConfigStringLiteral())
     buildConfigField("String", "UNITY_GAME_ID", unityGameId.toBuildConfigStringLiteral())
   }
 
@@ -107,6 +109,7 @@ secrets {
   ignoreList.add("GROQ_API_KEY")
   ignoreList.add("GMAIL_SENDER_EMAIL")
   ignoreList.add("GMAIL_16_DIGIT_APP_PASSWORD")
+  ignoreList.add("PRO_SUPPORT_EMAIL")
   ignoreList.add("UNITY_GAME_ID")
 }
 

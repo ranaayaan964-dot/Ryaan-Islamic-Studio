@@ -66,6 +66,9 @@ import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.repository.ProSubscriptionRepository
+import com.example.ui.components.ProUpgradeDialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -119,9 +122,13 @@ import java.util.Locale
  */
 @Composable
 fun SmartZakatScreen(
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onOpenProActivation: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
+    val proStatus by proRepository.proStatusFlow.collectAsStateWithLifecycle()
+    var showProUpgradeDialog by remember { mutableStateOf(false) }
 
     // Currency Selection: "USD" or "PKR"
     var selectedCurrency by remember { mutableStateOf("USD") }
@@ -281,8 +288,12 @@ fun SmartZakatScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     IconButton(
                         onClick = {
-                            val data = buildReportData()
-                            PdfReportGenerator.shareZakatPdf(context, data)
+                            if (proStatus.isProActive) {
+                                val data = buildReportData()
+                                PdfReportGenerator.shareZakatPdf(context, data)
+                            } else {
+                                showProUpgradeDialog = true
+                            }
                         },
                         modifier = Modifier
                             .size(40.dp)
@@ -299,8 +310,12 @@ fun SmartZakatScreen(
 
                     IconButton(
                         onClick = {
-                            val data = buildReportData()
-                            PdfReportGenerator.generateAndOpenZakatPdf(context, data)
+                            if (proStatus.isProActive) {
+                                val data = buildReportData()
+                                PdfReportGenerator.generateAndOpenZakatPdf(context, data)
+                            } else {
+                                showProUpgradeDialog = true
+                            }
                         },
                         modifier = Modifier
                             .size(40.dp)
@@ -877,8 +892,12 @@ fun SmartZakatScreen(
             // =========================================================================
             Button(
                 onClick = {
-                    val reportData = buildReportData()
-                    PdfReportGenerator.generateAndOpenZakatPdf(context, reportData)
+                    if (proStatus.isProActive) {
+                        val reportData = buildReportData()
+                        PdfReportGenerator.generateAndOpenZakatPdf(context, reportData)
+                    } else {
+                        showProUpgradeDialog = true
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -907,6 +926,16 @@ fun SmartZakatScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+    if (showProUpgradeDialog) {
+        ProUpgradeDialog(
+            message = "Official Zakat PDF certificates are an Ayaan Pro feature. Your Zakat calculation remains free.",
+            onDismiss = { showProUpgradeDialog = false },
+            onUpgrade = {
+                showProUpgradeDialog = false
+                onOpenProActivation()
+            }
+        )
     }
 }
 

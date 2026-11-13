@@ -66,6 +66,7 @@ import com.example.alarm.PrayerAlarmScheduler
 import com.example.alarm.PrayerAlarmService
 import com.example.data.database.AppDatabase
 import com.example.data.repository.AdminRepository
+import com.example.data.repository.ProSubscriptionRepository
 import com.example.data.model.LocationInfo
 import com.example.data.repository.LocationRepository
 import com.example.service.audio.QuranAudioController
@@ -113,6 +114,7 @@ enum class AppDestination {
     SPLASH,
     LOGIN,
     AGREEMENT,
+    PLAN_SELECTION,
     ADMIN_DASHBOARD,
     MAIN_APP
 }
@@ -136,7 +138,8 @@ enum class EnterpriseFeatureScreen {
     FAMILY_TRACKER,
     HIFZ_RECORDING,
     QAZA_NAMAZ,
-    USER_ADMIN_INBOX
+    USER_ADMIN_INBOX,
+    PRO_ACTIVATION
 }
 
 class MainActivity : ComponentActivity() {
@@ -194,6 +197,8 @@ class MainActivity : ComponentActivity() {
             val activeUser by remember {
                 AppDatabase.getInstance(this@MainActivity).userDao().getCurrentUserFlow()
             }.collectAsStateWithLifecycle(initialValue = null)
+            val proRepository = remember { ProSubscriptionRepository.getInstance(this@MainActivity) }
+            val proStatus by proRepository.proStatusFlow.collectAsStateWithLifecycle()
             var isAdminSession by remember { mutableStateOf(false) }
 
             LaunchedEffect(currentDestination, activeUser?.firebaseUid) {
@@ -265,10 +270,25 @@ class MainActivity : ComponentActivity() {
                                         currentDestination = if (admin) {
                                             AppDestination.ADMIN_DASHBOARD
                                         } else {
-                                            AppDestination.MAIN_APP
+                                            runCatching {
+                                                proRepository.refreshCurrentProStatus()
+                                            }
+                                            if (proRepository.proStatusFlow.value.isProActive) {
+                                                AppDestination.MAIN_APP
+                                            } else {
+                                                AppDestination.PLAN_SELECTION
+                                            }
                                         }
                                     }
                                 }
+                            )
+                        }
+                        AppDestination.PLAN_SELECTION -> {
+                            com.example.ui.screens.ProSubscriptionScreen(
+                                onNavigateBack = { currentDestination = AppDestination.LOGIN },
+                                onContinueWithFree = { currentDestination = AppDestination.MAIN_APP },
+                                isPostLoginStep = true,
+                                onProActivated = { currentDestination = AppDestination.MAIN_APP }
                             )
                         }
                         AppDestination.ADMIN_DASHBOARD -> {
@@ -527,20 +547,35 @@ fun MainAppContainer(
                 EnterpriseFeatureScreen.SETTINGS -> {
                     SettingsScreen(
                         onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE },
-                        onLogout = onLogout
+                        onLogout = onLogout,
+                        onOpenProActivation = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRO_ACTIVATION }
+                    )
+                }
+                EnterpriseFeatureScreen.PRO_ACTIVATION -> {
+                    com.example.ui.screens.ProSubscriptionScreen(
+                        onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE },
+                        onContinueWithFree = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE },
+                        onProActivated = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE }
                     )
                 }
                 EnterpriseFeatureScreen.QURAN_TAFSIR -> {
                     QuranTafsirScreen(
                         initialSurahId = selectedTafsirSurahId,
-                        onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE }
+                        onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE },
+                        onOpenProActivation = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRO_ACTIVATION }
                     )
                 }
                 EnterpriseFeatureScreen.TABEER_DREAM -> {
-                    com.example.ui.screens.TabeerDreamScreen(onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
+                    com.example.ui.screens.TabeerDreamScreen(
+                        onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE },
+                        onOpenProActivation = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRO_ACTIVATION }
+                    )
                 }
                 EnterpriseFeatureScreen.ARABIC_SCANNER -> {
-                    ArabicScannerScreen(onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
+                    ArabicScannerScreen(
+                        onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE },
+                        onOpenProActivation = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRO_ACTIVATION }
+                    )
                 }
                 EnterpriseFeatureScreen.GLOBAL_DUA_WALL -> {
                     GlobalDuaWallScreen(onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
@@ -555,7 +590,10 @@ fun MainAppContainer(
                     KidsLearningScreen(onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
                 }
                 EnterpriseFeatureScreen.SMART_ZAKAT -> {
-                    SmartZakatScreen(onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
+                    SmartZakatScreen(
+                        onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE },
+                        onOpenProActivation = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRO_ACTIVATION }
+                    )
                 }
                 EnterpriseFeatureScreen.PRAYER_TIMES -> {
                     PrayerTimesScreen(
@@ -568,7 +606,10 @@ fun MainAppContainer(
                     HalalScannerScreen(onBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
                 }
                 EnterpriseFeatureScreen.ZAKAT_CALCULATOR -> {
-                    ZakatCalculatorScreen(onBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
+                    ZakatCalculatorScreen(
+                        onBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE },
+                        onOpenProActivation = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRO_ACTIVATION }
+                    )
                 }
                 EnterpriseFeatureScreen.GLOBAL_DUA -> {
                     GlobalDuaScreen(onBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
@@ -586,7 +627,10 @@ fun MainAppContainer(
                     FamilyTrackerScreen(onBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
                 }
                 EnterpriseFeatureScreen.HIFZ_RECORDING -> {
-                    HifzRecordingScreen(onBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
+                    HifzRecordingScreen(
+                        onBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE },
+                        onOpenProActivation = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRO_ACTIVATION }
+                    )
                 }
                 EnterpriseFeatureScreen.QAZA_NAMAZ -> {
                     QazaNamazScreen(onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE })
@@ -613,12 +657,17 @@ fun MainAppContainer(
                             onNavigateToTahajjud = { activeEnterpriseScreen = EnterpriseFeatureScreen.TAHAJJUD_WAKEUP },
                             onNavigateToQaza = { activeEnterpriseScreen = EnterpriseFeatureScreen.QAZA_NAMAZ },
                             onNavigateToAdminInbox = { activeEnterpriseScreen = EnterpriseFeatureScreen.USER_ADMIN_INBOX },
+                            onOpenProActivation = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRO_ACTIVATION },
                             isAdmin = isAdmin,
                             onOpenAdminDashboard = onOpenAdminDashboard
                         )
                         1 -> SoundHubScreen(onNavigateBack = { selectedTab = 0 })
-                        2 -> AiCompanionScreen()
-                        3 -> HifzCheckerScreen()
+                        2 -> AiCompanionScreen(
+                            onOpenProActivation = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRO_ACTIVATION }
+                        )
+                        3 -> HifzCheckerScreen(
+                            onOpenProActivation = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRO_ACTIVATION }
+                        )
                         4 -> HabitTrackerScreen()
                     }
                 }

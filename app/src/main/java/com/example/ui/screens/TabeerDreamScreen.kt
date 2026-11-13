@@ -74,8 +74,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.remote.DualAiScholarEngine
+import com.example.data.repository.ProSubscriptionRepository
 import com.example.ui.components.IslamicWatermarkBackground
 import com.example.ui.components.NeumorphicCard
+import com.example.ui.components.ProUpgradeDialog
 import com.example.ui.theme.CharcoalPrimary
 import com.example.ui.theme.CharcoalSecondary
 import com.example.ui.theme.CrimsonError
@@ -106,10 +108,13 @@ data class DreamAnalysisResult(
  */
 @Composable
 fun TabeerDreamScreen(
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onOpenProActivation: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
+    var showProUpgradeDialog by remember { mutableStateOf(false) }
 
     var dreamNarrative by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
@@ -142,6 +147,10 @@ fun TabeerDreamScreen(
 
     fun analyzeDream() {
         if (dreamNarrative.isBlank() || isAnalyzing) return
+        if (!proRepository.canUseFeatureOrConsume("scan_dream", 2)) {
+            showProUpgradeDialog = true
+            return
+        }
         isAnalyzing = true
 
         scope.launch {
@@ -535,6 +544,16 @@ fun TabeerDreamScreen(
                 }
             }
         }
+    }
+    if (showProUpgradeDialog) {
+        ProUpgradeDialog(
+            message = "You have used the 2 free OCR and Tabeer analyses for today. Upgrade to Ayaan Pro for unlimited access.",
+            onDismiss = { showProUpgradeDialog = false },
+            onUpgrade = {
+                showProUpgradeDialog = false
+                onOpenProActivation()
+            }
+        )
     }
 }
 

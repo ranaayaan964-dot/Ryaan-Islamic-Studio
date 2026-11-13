@@ -107,6 +107,8 @@ import com.example.service.audio.QariId
 import com.example.service.audio.QuranAudioController
 import com.example.service.audio.QuranDownloadManager
 import com.example.ui.components.GlassCard
+import com.example.ui.components.ProUpgradeDialog
+import com.example.data.repository.ProSubscriptionRepository
 import com.example.ui.components.audio.QuranPlaybackControlBar
 import com.example.ui.components.quran.JuzListView
 import com.example.ui.components.quran.QariSelectionDialog
@@ -128,13 +130,17 @@ import kotlinx.coroutines.withContext
 @Composable
 fun QuranTafsirScreen(
     initialSurahId: Int = 1,
-    onNavigateBack: (() -> Unit)? = null
+    onNavigateBack: (() -> Unit)? = null,
+    onOpenProActivation: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val isDark = LocalThemeIsDark.current
     val repository = remember { QuranRepository(context) }
     val preferences = remember { QuranReadingPreferences(context) }
     val scope = rememberCoroutineScope()
+    val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
+    val proStatus by proRepository.proStatusFlow.collectAsStateWithLifecycle()
+    var showProUpgradeDialog by remember { mutableStateOf(false) }
 
     // Audio states from Controller
     val isPlaying by QuranAudioController.isPlaying.collectAsStateWithLifecycle()
@@ -584,7 +590,9 @@ fun QuranTafsirScreen(
 
             androidx.compose.material3.Button(
                 onClick = {
-                    if (!isDownloadingFullQuran) {
+                    if (!proStatus.isProActive) {
+                        showProUpgradeDialog = true
+                    } else if (!isDownloadingFullQuran) {
                         scope.launch {
                             isDownloadingFullQuran = true
                             offlineDownloadProgress = 0
@@ -1046,6 +1054,16 @@ fun QuranTafsirScreen(
                     }
                 },
                 onDismiss = { showBookmarksDialog = false }
+            )
+        }
+        if (showProUpgradeDialog) {
+            ProUpgradeDialog(
+                message = "Downloading the complete Quran for offline use is an Ayaan Pro feature. Individual Surah reading and streaming remain free.",
+                onDismiss = { showProUpgradeDialog = false },
+                onUpgrade = {
+                    showProUpgradeDialog = false
+                    onOpenProActivation()
+                }
             )
         }
     }

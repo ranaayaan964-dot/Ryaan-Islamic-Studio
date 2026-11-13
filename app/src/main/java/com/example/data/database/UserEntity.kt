@@ -50,5 +50,14 @@ data class UserEntity(
     val isRemoved: Boolean = false,
 
     @ColumnInfo(name = "activity_summary", defaultValue = "'Active in App'")
-    val activitySummary: String = "Active in App"
+    val activitySummary: String = "Active in App",
+
+    @ColumnInfo(name = "subscription_plan", defaultValue = "'FREE'")
+    val subscriptionPlan: String = "FREE",
+
+    @ColumnInfo(name = "pro_expires_at", defaultValue = "0")
+    val proExpiresAt: Long = 0L,
+
+    @ColumnInfo(name = "activated_pro_key", defaultValue = "''")
+    val activatedProKey: String = ""
 )

@@ -90,11 +90,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.database.AppDatabase
 import com.example.data.database.ChatHistoryEntity
+import com.example.data.repository.ProSubscriptionRepository
 import com.example.data.remote.DualAiScholarEngine
 import com.example.data.remote.GeminiChatbotRole
 import com.example.data.remote.IslamicVoiceEngine
 import com.example.ui.components.IslamicWatermarkBackground
 import com.example.ui.components.NeumorphicCard
+import com.example.ui.components.ProUpgradeDialog
 import com.example.ui.theme.CharcoalPrimary
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.DeepRoyalEmerald
@@ -121,13 +123,16 @@ import java.util.Locale
  * role system instructions.
  */
 @Composable
-fun AiCompanionScreen() {
+fun AiCompanionScreen(
+    onOpenProActivation: () -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     val listState = rememberLazyListState()
 
     val appDb = remember { AppDatabase.getInstance(context) }
+    val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
     val chatHistory by appDb.chatDao().getAllChatHistoryFlow().collectAsStateWithLifecycle(initialValue = emptyList())
     val messages = remember { mutableStateListOf<ChatMessage>() }
 
@@ -143,6 +148,7 @@ fun AiCompanionScreen() {
     var isAutoDetectMode by remember { mutableStateOf(true) }
     var showRoleInfoDialog by remember { mutableStateOf(false) }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
+    var showProUpgradeDialog by remember { mutableStateOf(false) }
 
     // Voice Engine for AI Text-To-Speech
     val voiceEngine = remember { IslamicVoiceEngine(context) }
@@ -263,6 +269,10 @@ fun AiCompanionScreen() {
     // Send user message through multi-turn Gemini pipeline
     fun sendUserMessage(question: String) {
         if (question.isBlank() || isThinking) return
+        if (!proRepository.canUseFeatureOrConsume("ai_scholar", 5)) {
+            showProUpgradeDialog = true
+            return
+        }
         val userPrompt = question.trim()
         inputText = ""
 
@@ -721,6 +731,17 @@ fun AiCompanionScreen() {
                 TextButton(onClick = { showClearConfirmDialog = false }) {
                     Text("Cancel", color = SlateMuted)
                 }
+            }
+        )
+    }
+
+    if (showProUpgradeDialog) {
+        ProUpgradeDialog(
+            message = "You have used all 5 free AI Scholar queries for today. Upgrade to Ayaan Pro for unlimited access.",
+            onDismiss = { showProUpgradeDialog = false },
+            onUpgrade = {
+                showProUpgradeDialog = false
+                onOpenProActivation()
             }
         )
     }

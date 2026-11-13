@@ -31,9 +31,9 @@ object QuranRecitationEvaluator {
     fun normalizeArabic(input: String): String {
         var text = DIACRITICS_REGEX.replace(input, "")
         text = PUNCTUATION_REGEX.replace(text, " ")
-        text = text.replace(Regex("[أإآٱ]"), "ا")
-        text = text.replace("ة", "ه")
-        text = text.replace("ى", "ي")
+        text = text.replace(Regex("[\u0623\u0625\u0622\u0671]"), "\u0627")
+        text = text.replace("\u0629", "\u0647")
+        text = text.replace("\u0649", "\u064A")
         return text.trim().replace(Regex("\\s+"), " ")
     }
 

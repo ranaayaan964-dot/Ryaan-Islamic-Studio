@@ -12,6 +12,9 @@ import java.util.Base64
 import javax.net.ssl.SSLSocketFactory
 
 object AyaanEmailSender {
+    val proSupportEmail: String
+        get() = BuildConfig.PRO_SUPPORT_EMAIL
+
     suspend fun sendPasswordResetOtpEmail(email: String, otpCode: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val sender = BuildConfig.GMAIL_SENDER_EMAIL.trim()

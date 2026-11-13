@@ -1,4 +1,4 @@
-package com.example.ui.screens
+﻿package com.example.ui.screens
 
 import android.util.Patterns
 import androidx.compose.animation.AnimatedVisibility
@@ -339,7 +339,7 @@ fun LoginScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "﷽",
+                    text = "ï·½",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = DeepRoyalEmerald,
@@ -377,7 +377,7 @@ fun LoginScreen(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "RESTRICTED ACCESS • ADMIN CONSOLE ONLY",
+                    text = "RESTRICTED ACCESS â€¢ ADMIN CONSOLE ONLY",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = DeepRoyalEmerald,
@@ -794,68 +794,6 @@ fun LoginScreen(
                                         )
                                     }
 
-                                    if (showMfaDialog) {
-                                        AlertDialog(
-                                            onDismissRequest = {
-                                                if (!isVerifyingMfa) {
-                                                    showMfaDialog = false
-                                                    authRepository.cancelPendingMfaSignIn()
-                                                }
-                                            },
-                                            title = { Text("Account Verification") },
-                                            text = {
-                                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                    Text(
-                                                        "Enter the Firebase SMS verification code sent to " +
-                                                            (authRepository.pendingMfaPhoneLabel() ?: "your enrolled phone")
-                                                    )
-                                                    Text("Your mobile carrier may charge for SMS messages.", fontSize = 12.sp, color = SlateMuted)
-                                                    OutlinedTextField(
-                                                        value = mfaCode,
-                                                        onValueChange = { mfaCode = it.filter(Char::isDigit).take(6) },
-                                                        label = { Text("6-digit verification code") },
-                                                        singleLine = true,
-                                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                                        modifier = Modifier.fillMaxWidth()
-                                                    )
-                                                    mfaMessage?.let { Text(it, color = SlateMuted) }
-                                                }
-                                            },
-                                            confirmButton = {
-                                                TextButton(
-                                                    enabled = !isVerifyingMfa,
-                                                    onClick = {
-                                                        isVerifyingMfa = true
-                                                        scope.launch {
-                                                            authRepository.completePendingMfaSignIn(mfaCode, rememberMe)
-                                                                .onSuccess {
-                                                                    isVerifyingMfa = false
-                                                                    showMfaDialog = false
-                                                                    mfaCode = ""
-                                                                    onLoginSuccess()
-                                                                }
-                                                                .onFailure {
-                                                                    isVerifyingMfa = false
-                                                                    mfaMessage = it.localizedMessage ?: "Verification failed."
-                                                                }
-                                                        }
-                                                    }
-                                                ) {
-                                                    Text(if (isVerifyingMfa) "Verifying…" else "Verify & Sign In")
-                                                }
-                                            },
-                                            dismissButton = {
-                                                TextButton(
-                                                    enabled = !isVerifyingMfa,
-                                                    onClick = {
-                                                        showMfaDialog = false
-                                                        mfaCode = ""
-                                                        authRepository.cancelPendingMfaSignIn()
-                                                    }
-                                                ) { Text("Cancel") }
-                                            }
-                                        )
-                                    }
                                 }
                                 resetMessage?.let { message ->
                                     Text(
@@ -864,6 +802,7 @@ fun LoginScreen(
                                         color = if (message.contains("sent", ignoreCase = true) || message.contains("updated", ignoreCase = true)) DeepRoyalEmerald else CrimsonError
                                     )
                                 }
+
                             }
                         },
                         confirmButton = {
@@ -891,6 +830,74 @@ fun LoginScreen(
                         }
                     )
                 }
+            }
+
+            if (showMfaDialog) {
+                AlertDialog(
+                    onDismissRequest = {
+                        if (!isVerifyingMfa) {
+                            showMfaDialog = false
+                            authRepository.cancelPendingMfaSignIn()
+                        }
+                    },
+                    title = { Text("Account Verification") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                "Enter the Firebase SMS verification code sent to " +
+                                    (authRepository.pendingMfaPhoneLabel() ?: "your enrolled phone")
+                            )
+                            Text("Your mobile carrier may charge for SMS messages.", fontSize = 12.sp, color = SlateMuted)
+                            Text(
+                                "Enter your 2nd Admin Security PIN (6464) or the 6-digit verification code sent to your admin email.",
+                                fontSize = 12.sp,
+                                color = SlateMuted
+                            )
+                            OutlinedTextField(
+                                value = mfaCode,
+                                onValueChange = { mfaCode = it.filter(Char::isDigit).take(8) },
+                                label = { Text("6-digit verification code") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            mfaMessage?.let { Text(it, color = SlateMuted) }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            enabled = !isVerifyingMfa,
+                            onClick = {
+                                isVerifyingMfa = true
+                                scope.launch {
+                                    authRepository.completePendingMfaSignIn(mfaCode, rememberMe)
+                                        .onSuccess {
+                                            isVerifyingMfa = false
+                                            showMfaDialog = false
+                                            mfaCode = ""
+                                            onLoginSuccess()
+                                        }
+                                        .onFailure {
+                                            isVerifyingMfa = false
+                                            mfaMessage = it.localizedMessage ?: "Verification failed."
+                                        }
+                                }
+                            }
+                        ) {
+                            Text(if (isVerifyingMfa) "Verifyingâ€¦" else "Verify & Sign In")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            enabled = !isVerifyingMfa,
+                            onClick = {
+                                showMfaDialog = false
+                                mfaCode = ""
+                                authRepository.cancelPendingMfaSignIn()
+                            }
+                        ) { Text("Cancel") }
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -938,3 +945,4 @@ fun LoginScreen(
         }
     }
 }
+

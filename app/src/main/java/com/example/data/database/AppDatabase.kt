@@ -13,9 +13,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ChatHistoryEntity::class,
         QazaPrayerEntity::class,
         AdminMessageEntity::class,
-        UserReportEntity::class
+        UserReportEntity::class,
+        ProLicenseKeyEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +25,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
     abstract fun qazaDao(): QazaDao
     abstract fun adminDao(): AdminDao
+    abstract fun proLicenseDao(): ProLicenseDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -160,6 +162,45 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val userColumns = db.query("PRAGMA table_info(`users`)").use { cursor ->
+                    buildSet {
+                        val nameColumn = cursor.getColumnIndex("name")
+                        while (cursor.moveToNext()) {
+                            if (nameColumn >= 0) add(cursor.getString(nameColumn))
+                        }
+                    }
+                }
+                if ("subscription_plan" !in userColumns) {
+                    db.execSQL("ALTER TABLE `users` ADD COLUMN `subscription_plan` TEXT NOT NULL DEFAULT 'FREE'")
+                }
+                if ("pro_expires_at" !in userColumns) {
+                    db.execSQL("ALTER TABLE `users` ADD COLUMN `pro_expires_at` INTEGER NOT NULL DEFAULT 0")
+                }
+                if ("activated_pro_key" !in userColumns) {
+                    db.execSQL("ALTER TABLE `users` ADD COLUMN `activated_pro_key` TEXT NOT NULL DEFAULT ''")
+                }
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `pro_license_keys` (
+                        `licenseKey` TEXT NOT NULL,
+                        `planTier` TEXT NOT NULL,
+                        `durationDays` INTEGER NOT NULL,
+                        `pricePkr` INTEGER NOT NULL,
+                        `isUsed` INTEGER NOT NULL,
+                        `usedByUsername` TEXT NOT NULL,
+                        `usedByEmail` TEXT NOT NULL,
+                        `usedByUid` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `activatedAt` INTEGER NOT NULL,
+                        `expiresAt` INTEGER NOT NULL,
+                        `aiNote` TEXT NOT NULL,
+                        PRIMARY KEY(`licenseKey`)
+                    )""".trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -174,6 +215,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_2_3)
                     .addMigrations(MIGRATION_3_4)
                     .addMigrations(MIGRATION_4_5)
+                    .addMigrations(MIGRATION_5_6)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                 INSTANCE = instance
