@@ -1,4 +1,4 @@
-package com.example.data.repository
+﻿package com.example.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -61,12 +61,7 @@ class ProSubscriptionRepository private constructor(context: Context) {
             }
         }
         scope.launch {
-            auth.addIdTokenListener {
-                scope.launch {
-                    val user = runCatching { userDao.getCurrentUser() }.getOrNull()
-                    mutableProStatus.value = user.toProStatus(runCatching { hasAuthorizedAdminClaim() }.getOrDefault(false))
-                }
-            }
+            auth.addIdTokenListener(FirebaseAuth.IdTokenListener { scope.launch { val user = runCatching { userDao.getCurrentUser() }.getOrNull(); mutableProStatus.value = user.toProStatus(runCatching { hasAuthorizedAdminClaim() }.getOrDefault(false)) } })
         }
     }
 
@@ -421,3 +416,4 @@ class ProSubscriptionRepository private constructor(context: Context) {
             }
     }
 }
+

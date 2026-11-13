@@ -1,4 +1,4 @@
-package com.example.ui.screens
+﻿package com.example.ui.screens
 
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
@@ -46,6 +46,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -453,7 +454,7 @@ fun NextPrayerHeroCard(
 
                 // Prayer Name & Arabic
                 Text(
-                    text = "${countdownState.nextPrayerName}  •  ${countdownState.nextPrayerArabic}",
+                    text = "${countdownState.nextPrayerName}  â€¢  ${countdownState.nextPrayerArabic}",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -605,7 +606,7 @@ fun DailyInspirationSection(
 
             // English meaning
             Text(
-                text = "“${inspiration.englishText}”",
+                text = "â€œ${inspiration.englishText}â€",
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 18.sp,
@@ -615,7 +616,7 @@ fun DailyInspirationSection(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "— ${inspiration.source}",
+                text = "â€” ${inspiration.source}",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.primary
@@ -750,3 +751,4 @@ fun PrayerTimeCard(
         }
     }
 }
+

@@ -473,6 +473,7 @@ class AyaanAuthRepository(context: Context) {
             val normalizedEmail = email.trim().lowercase()
             require(android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()) { "Enter a valid email address." }
             auth.sendPasswordResetEmail(normalizedEmail).await()
+            Unit
         }.onFailure {
             if (it is CancellationException) throw it
             Log.e(TAG, "Password reset request failed", it)
@@ -489,7 +490,9 @@ class AyaanAuthRepository(context: Context) {
                 AyaanEmailSender.sendPasswordResetOtpEmail(normalizedEmail, otp).getOrThrow()
                 smtpSent = true
             }
-            runCatching { auth.sendPasswordResetEmail(normalizedEmail).await() }
+            runCatching { auth.sendPasswordResetEmail(normalizedEmail).await()
+            Unit
+        }
             otpEmail = normalizedEmail
             otpCode = otp
             otpExpiresAt = System.currentTimeMillis() + 10 * 60 * 1000
@@ -653,3 +656,4 @@ class AyaanAuthRepository(context: Context) {
         )
     }
 }
+

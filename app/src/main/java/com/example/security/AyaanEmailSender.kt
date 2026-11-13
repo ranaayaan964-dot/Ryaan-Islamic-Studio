@@ -1,4 +1,4 @@
-package com.example.security
+﻿package com.example.security
 
 import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -70,7 +70,9 @@ object AyaanEmailSender {
                 writer.write("QUIT\r\n")
                 writer.flush()
                 readResponse()
+                Unit
             }
         }
     }
 }
+

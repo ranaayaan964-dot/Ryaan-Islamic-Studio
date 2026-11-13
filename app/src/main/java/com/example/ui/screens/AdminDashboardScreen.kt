@@ -1,4 +1,4 @@
-package com.example.ui.screens
+﻿package com.example.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,11 +32,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.database.ProLicenseKeyEntity
+import com.example.data.database.ProPlanTier
 import com.example.data.database.UserEntity
 import com.example.data.database.UserReportEntity
 import com.example.data.repository.AdminRepository
-import com.example.data.database.ProLicenseKeyEntity
-import com.example.data.database.ProPlanTier
 import com.example.data.repository.ProSubscriptionRepository
 import kotlinx.coroutines.launch
 import java.text.DateFormat
@@ -77,7 +77,7 @@ fun AdminDashboardScreen(
         try {
             isAuthorized = repository.isAdminSession()
             if (!isAuthorized) {
-                error = "This dashboard requires an administrator account provisioned with the Firebase admin claim."
+                error = "This dashboard requires signing in with an authorized administrator email."
             } else {
                 repository.syncUsersFromFirestore()
                 repository.syncMessagesForAdmin()
@@ -96,8 +96,8 @@ fun AdminDashboardScreen(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text("AYAAN ADMIN COMMAND CENTER", style = MaterialTheme.typography.titleLarge)
-                Text("Firebase admin claim • MFA verified")
-                Text("Authorized accounts: ${AdminRepository.AUTHORIZED_ADMIN_EMAILS.joinToString()}")
+                Text("Admin 2FA Verified")
+                Text("Authorized: ${AdminRepository.AUTHORIZED_ADMIN_EMAILS.joinToString()}")
             }
             TextButton(onClick = onOpenUserApp) { Text("Open User App") }
             TextButton(onClick = {
@@ -117,7 +117,7 @@ fun AdminDashboardScreen(
         }
 
         if (isLoading) {
-            Text("Verifying administrator access…")
+            Text("Verifying administrator access...")
         } else if (!isAuthorized) {
             Text(error ?: "Administrator access is unavailable.", color = MaterialTheme.colorScheme.error)
         } else {
@@ -132,6 +132,7 @@ fun AdminDashboardScreen(
                 }
             }
             actionMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+
             when (selectedTab) {
                 0 -> {
                     OutlinedTextField(
@@ -154,15 +155,16 @@ fun AdminDashboardScreen(
                                     Text("${user.role} • ${user.authProvider} • ${user.activitySummary}")
                                     Text("Last active: ${formatTimestamp(user.loginTimestamp)}")
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        val recipientKey = user.firebaseUid.ifBlank { user.username }
                                         Checkbox(
-                                            checked = user.firebaseUid in selectedUsers,
+                                            checked = recipientKey in selectedUsers,
                                             onCheckedChange = { checked ->
-                                                selectedUsers = if (checked) selectedUsers + user.firebaseUid
-                                                else selectedUsers - user.firebaseUid
+                                                selectedUsers = if (checked) selectedUsers + recipientKey
+                                                else selectedUsers - recipientKey
                                             }
                                         )
                                         TextButton(onClick = {
-                                            selectedUsers = selectedUsers + user.firebaseUid
+                                            selectedUsers = selectedUsers + recipientKey
                                             targetAll = false
                                             messageType = "WARNING"
                                             selectedTab = 1
@@ -185,12 +187,13 @@ fun AdminDashboardScreen(
                     if (!targetAll) {
                         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             items(users, key = { "recipient_${it.id}" }) { user ->
+                                val recipientKey = user.firebaseUid.ifBlank { user.username }
                                 Row(Modifier.fillMaxWidth()) {
                                     Checkbox(
-                                        checked = user.firebaseUid in selectedUsers,
+                                        checked = recipientKey in selectedUsers,
                                         onCheckedChange = { checked ->
-                                            selectedUsers = if (checked) selectedUsers + user.firebaseUid
-                                            else selectedUsers - user.firebaseUid
+                                            selectedUsers = if (checked) selectedUsers + recipientKey
+                                            else selectedUsers - recipientKey
                                         }
                                     )
                                     Text("${user.fullName} (@${user.username})")
@@ -299,8 +302,8 @@ fun AdminDashboardScreen(
                                     generatedKey = key
                                     actionMessage = "Single-use Pro key generated and synced."
                                 },
-                                onFailure = { error ->
-                                    actionMessage = error.localizedMessage ?: "Pro key generation failed."
+                                onFailure = { err ->
+                                    actionMessage = err.localizedMessage ?: "Pro key generation failed."
                                 }
                             )
                         }
@@ -320,27 +323,27 @@ fun AdminDashboardScreen(
             }
         }
 
-    removeCandidate?.let { user ->
-        AlertDialog(
-            onDismissRequest = { removeCandidate = null },
-            title = { Text("Remove ${user.fullName}?") },
-            text = { Text("The account will be marked removed in Firestore and blocked from signing in.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    removeCandidate = null
-                    scope.launch {
-                        try {
-                            repository.removeUser(user)
-                            actionMessage = "User marked removed."
-                        } catch (e: Exception) {
-                            actionMessage = e.localizedMessage ?: "User could not be removed."
+        removeCandidate?.let { user ->
+            AlertDialog(
+                onDismissRequest = { removeCandidate = null },
+                title = { Text("Remove ${user.fullName}?") },
+                text = { Text("The account will be marked removed in Firestore and blocked from signing in.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        removeCandidate = null
+                        scope.launch {
+                            try {
+                                repository.removeUser(user)
+                                actionMessage = "User marked removed."
+                            } catch (e: Exception) {
+                                actionMessage = e.localizedMessage ?: "User could not be removed."
+                            }
                         }
-                    }
-                }) { Text("Remove") }
-            },
-            dismissButton = { TextButton(onClick = { removeCandidate = null }) { Text("Cancel") } }
-        )
-    }
+                    }) { Text("Remove") }
+                },
+                dismissButton = { TextButton(onClick = { removeCandidate = null }) { Text("Cancel") } }
+            )
+        }
     }
 }
 
@@ -359,68 +362,67 @@ private fun ProKeysAdminPanel(
     onCopy: (String) -> Unit,
     onDelete: (ProLicenseKeyEntity) -> Unit
 ) {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Create a single-use activation key", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                tiers.forEach { tier ->
-                    FilterChip(
-                        selected = selectedTier == tier,
-                        onClick = { onSelectTier(tier) },
-                        label = { Text("${tier.displayName.removeSuffix(" Pro Plan")} • ${tier.priceFormatted}") }
-                    )
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Create a single-use activation key", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            tiers.forEach { tier ->
+                FilterChip(
+                    selected = selectedTier == tier,
+                    onClick = { onSelectTier(tier) },
+                    label = { Text("${tier.displayName.removeSuffix(" Pro Plan")} • ${tier.priceFormatted}") }
+                )
+            }
+        }
+        OutlinedTextField(
+            value = buyerNote,
+            onValueChange = onBuyerNoteChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Buyer name / optional note") },
+            singleLine = true
+        )
+        Button(onClick = onGenerate, modifier = Modifier.fillMaxWidth()) {
+            Text("Generate Single-Use Pro Key")
+        }
+        generatedKey?.let { key ->
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("New key: ${key.licenseKey}", style = MaterialTheme.typography.titleMedium)
+                    Text(key.aiNote)
+                    TextButton(onClick = { onCopy(key.licenseKey) }) { Text("Copy Key") }
                 }
             }
-            OutlinedTextField(
-                value = buyerNote,
-                onValueChange = onBuyerNoteChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Buyer name / optional note") },
-                singleLine = true
-            )
-            Button(onClick = onGenerate, modifier = Modifier.fillMaxWidth()) {
-                Text("Generate Single-Use Pro Key")
+        }
+        Text("Generated keys", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("All Keys", "Available", "Redeemed").forEach { filter ->
+                FilterChip(
+                    selected = keyFilter == filter,
+                    onClick = { onSelectFilter(filter) },
+                    label = { Text(filter) }
+                )
             }
-            generatedKey?.let { key ->
+        }
+        val visibleKeys = keys.filter {
+            when (keyFilter) {
+                "Available" -> !it.isUsed
+                "Redeemed" -> it.isUsed
+                else -> true
+            }
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(visibleKeys, key = { it.licenseKey }) { key ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("New key: ${key.licenseKey}", style = MaterialTheme.typography.titleMedium)
-                        Text(key.aiNote)
-                        TextButton(onClick = { onCopy(key.licenseKey) }) { Text("Copy Key") }
-                    }
-                }
-            }
-            Text("Generated keys", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("All Keys", "Available", "Redeemed").forEach { filter ->
-                    FilterChip(
-                        selected = keyFilter == filter,
-                        onClick = { onSelectFilter(filter) },
-                        label = { Text(filter) }
-                    )
-                }
-            }
-            val visibleKeys = keys.filter {
-                when (keyFilter) {
-                    "Available" -> !it.isUsed
-                    "Redeemed" -> it.isUsed
-                    else -> true
-                }
-            }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(visibleKeys, key = { it.licenseKey }) { key ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(key.licenseKey, style = MaterialTheme.typography.titleMedium)
-                            Text("${key.planTier} • ${key.durationDays} days • Rs. ${key.pricePkr}")
-                            Text(if (key.isUsed) "USED & LOCKED" else "AVAILABLE (UNUSED)")
-                            if (key.isUsed) {
-                                Text("Used by: @${key.usedByUsername} (${key.usedByEmail})")
-                                Text("Activated: ${formatTimestamp(key.activatedAt)} • Expires: ${formatTimestamp(key.expiresAt)}")
-                            }
-                            Row {
-                                TextButton(onClick = { onCopy(key.licenseKey) }) { Text("Copy Key") }
-                                if (!key.isUsed) TextButton(onClick = { onDelete(key) }) { Text("Delete / Revoke") }
-                            }
+                        Text(key.licenseKey, style = MaterialTheme.typography.titleMedium)
+                        Text("${key.planTier} • ${key.durationDays} days • Rs. ${key.pricePkr}")
+                        Text(if (key.isUsed) "USED & LOCKED" else "AVAILABLE (UNUSED)")
+                        if (key.isUsed) {
+                            Text("Used by: @${key.usedByUsername} (${key.usedByEmail})")
+                            Text("Activated: ${formatTimestamp(key.activatedAt)} • Expires: ${formatTimestamp(key.expiresAt)}")
+                        }
+                        Row {
+                            TextButton(onClick = { onCopy(key.licenseKey) }) { Text("Copy Key") }
+                            if (!key.isUsed) TextButton(onClick = { onDelete(key) }) { Text("Delete / Revoke") }
                         }
                     }
                 }

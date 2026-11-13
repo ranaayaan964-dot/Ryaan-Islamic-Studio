@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.media3.common.util.UnstableApi::class)
+﻿@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.media3.common.util.UnstableApi::class)
 
 package com.example.ui.screens
 
@@ -403,7 +403,7 @@ fun QuranReaderScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "▼",
+                                    text = "â–¼",
                                     fontSize = 10.sp,
                                     color = PlatinumGold
                                 )
@@ -412,7 +412,7 @@ fun QuranReaderScreen(
                                 text = if (isJuzMode) {
                                     JuzCatalog.getJuzById(currentJuzNumber)?.nameArabic ?: "30 Paras"
                                 } else {
-                                    surahDataState?.info?.let { "${it.name} • ${it.numberOfAyahs} Ayahs" } ?: "JSON API Reader"
+                                    surahDataState?.info?.let { "${it.name} â€¢ ${it.numberOfAyahs} Ayahs" } ?: "JSON API Reader"
                                 },
                                 fontSize = 11.sp,
                                 color = SlateMuted
@@ -577,7 +577,7 @@ fun QuranReaderScreen(
                                             color = PlatinumGold, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                                         Text(juz?.nameArabic.orEmpty(), color = PureWhite, fontSize = 22.sp,
                                             modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.End)
-                                        Text("${juz?.startSurahName} ${juz?.startVerse} — ${juz?.endSurahName} ${juz?.endVerse} • ${juz?.totalVersesInJuz} Ayahs",
+                                        Text("${juz?.startSurahName} ${juz?.startVerse} â€” ${juz?.endSurahName} ${juz?.endVerse} â€¢ ${juz?.totalVersesInJuz} Ayahs",
                                             color = PureWhite, fontSize = 12.sp)
                                     }
                                 }
@@ -702,6 +702,8 @@ fun QuranReaderScreen(
                             )
                         }
                     }
+                    }
+                    }
                 } else {
                     // Error state with retry
                     Box(
@@ -771,7 +773,7 @@ fun QuranReaderScreen(
                     .padding(horizontal = 18.dp, vertical = 8.dp)
             ) {
                 Text(
-                    text = "Select Surah (اخْتَرْ السُّورَة)",
+                    text = "Select Surah (Ø§Ø®Ù’ØªÙŽØ±Ù’ Ø§Ù„Ø³Ù‘ÙÙˆØ±ÙŽØ©)",
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = DeepRoyalEmerald
@@ -870,7 +872,7 @@ fun QuranReaderScreen(
                                         color = DeepRoyalEmerald
                                     )
                                     Text(
-                                        text = "${surah.englishNameTranslation} • ${surah.numberOfAyahs} Verses",
+                                        text = "${surah.englishNameTranslation} â€¢ ${surah.numberOfAyahs} Verses",
                                         fontSize = 11.sp,
                                         color = SlateMuted
                                     )
@@ -906,7 +908,7 @@ fun QuranReaderScreen(
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
         ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp)) {
-                Text("Select Para / Juz (۳۰ سپارے)", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = DeepRoyalEmerald)
+                Text("Select Para / Juz (Û³Û° Ø³Ù¾Ø§Ø±Û’)", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = DeepRoyalEmerald)
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().height(440.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -928,8 +930,8 @@ fun QuranReaderScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text("Para ${juz.id} • ${juz.nameEnglish}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = DeepRoyalEmerald)
-                                Text("${juz.startSurahName} ${juz.startVerse} — ${juz.endSurahName} ${juz.endVerse}", fontSize = 11.sp, color = SlateMuted)
+                                Text("Para ${juz.id} â€¢ ${juz.nameEnglish}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = DeepRoyalEmerald)
+                                Text("${juz.startSurahName} ${juz.startVerse} â€” ${juz.endSurahName} ${juz.endVerse}", fontSize = 11.sp, color = SlateMuted)
                             }
                             Text(juz.nameArabic, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = CharcoalPrimary)
                         }
@@ -1015,7 +1017,7 @@ fun QuranReaderScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Show Urdu Translation (اردو)", fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                        Text("Show Urdu Translation (Ø§Ø±Ø¯Ùˆ)", fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
                         Switch(
                             checked = showUrduTranslation,
                             onCheckedChange = { showUrduTranslation = it },
@@ -1201,7 +1203,7 @@ fun BismillahOrnamentalBanner() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ",
+                text = "Ø¨ÙØ³Ù’Ù…Ù Ù±Ù„Ù„Ù‘ÙŽÙ‡Ù Ù±Ù„Ø±Ù‘ÙŽØ­Ù’Ù…ÙŽÙ°Ù†Ù Ù±Ù„Ø±Ù‘ÙŽØ­ÙÙŠÙ…Ù",
                 fontSize = 22.sp,
                 fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.Bold,
@@ -1211,7 +1213,7 @@ fun BismillahOrnamentalBanner() {
             Spacer(modifier = Modifier.height(4.dp))
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 Text(
-                    text = "شروع اللہ کا نام لے کر جو بڑا مہربان نہایت رحم والا ہے",
+                    text = "Ø´Ø±ÙˆØ¹ Ø§Ù„Ù„Û Ú©Ø§ Ù†Ø§Ù… Ù„Û’ Ú©Ø± Ø¬Ùˆ Ø¨Ú‘Ø§ Ù…ÛØ±Ø¨Ø§Ù† Ù†ÛØ§ÛŒØª Ø±Ø­Ù… ÙˆØ§Ù„Ø§ ÛÛ’",
                     fontSize = 13.sp,
                     color = SlateMuted,
                     textAlign = TextAlign.Right
@@ -1277,7 +1279,7 @@ fun AyahCardItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Verse Badge (e.g. ۝ 1:1)
+                // Verse Badge (e.g. Û 1:1)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
@@ -1359,7 +1361,7 @@ fun AyahCardItem(
             // Arabic Text with Authentic Uthmani Calligraphy Formatting
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 Text(
-                    text = "${ayah.arabicText} ﴿${ayah.numberInSurah}﴾",
+                    text = "${ayah.arabicText} ï´¿${ayah.numberInSurah}ï´¾",
                     fontSize = arabicFontSize.sp,
                     fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold,
@@ -1472,3 +1474,4 @@ fun SurahFooterNavigation(
         }
     }
 }
+
