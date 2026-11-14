@@ -9,12 +9,49 @@
       "client_info": {
         "mobilesdk_app_id": "1:392374346970:android:6e491e087757f767c731e3",
         "android_client_info": {
-          "package_name": "com.ayaan.islamicstudio"
+          "package_name": "com.aistudio.prayertimes.rzxk"
         }
       },
       "oauth_client": [
         {
           "client_id": "392374346970-esu6u0572ueuqi6hgujcev7kuf7afaqn.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.prayertimes.rzxk",
+            "certificate_hash": "f50834d79c2db1a1776a32b2420eeea04149240a"
+          }
+        },
+        {
+          "client_id": "392374346970-h0ch6ifusr5nlgnp4k0eqg0p4gog9pan.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD3Cr99B-q1xeuep28aiRvGoFxwCjZCR1Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "392374346970-h0ch6ifusr5nlgnp4k0eqg0p4gog9pan.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:392374346970:android:353e4f4ff36bf404c731e3",
+        "android_client_info": {
+          "package_name": "com.ayaan.islamicstudio"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "392374346970-44unjht0u0ipguv4vsohs5536ucbkhv3.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.ayaan.islamicstudio",
