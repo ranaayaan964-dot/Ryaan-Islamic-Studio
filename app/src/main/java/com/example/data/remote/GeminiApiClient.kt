@@ -265,6 +265,9 @@ object GeminiApiClient {
                     "contents",
                     JSONArray().put(
                         JSONObject().put(
+                            "role",
+                            "user"
+                        ).put(
                             "parts",
                             JSONArray()
                                 .put(JSONObject().put("text", prompt))
@@ -469,4 +472,3 @@ class IslamicVoiceEngine(context: Context) {
         isInitialized = false
     }
 }
-

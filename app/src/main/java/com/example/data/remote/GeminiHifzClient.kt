@@ -72,6 +72,9 @@ object GeminiHifzClient {
                 "contents",
                 JSONArray().put(
                     JSONObject().put(
+                        "role",
+                        "user"
+                    ).put(
                         "parts",
                         JSONArray()
                             .put(JSONObject().put("text", prompt))
@@ -106,4 +109,3 @@ object GeminiHifzClient {
     private fun offlineGuidance(surahName: String): String =
         "AI transcription is temporarily unavailable for $surahName. No recitation accuracy score was generated. Please try again later or review the recording with a qualified Quran teacher."
 }
-

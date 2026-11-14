@@ -216,9 +216,31 @@ class AyaanAuthRepository(context: Context) {
             val email = if (normalizedIdentifier.contains("@")) {
                 normalizedIdentifier.lowercase()
             } else {
-                val localAccount = userDao.getUserByUsername(lowerId)
-                localAccount?.email?.takeIf { it.isNotBlank() }
-                    ?: throw IllegalArgumentException("Account not found on this device. Sign in with your email address.")
+                val mappedAdminEmail = when (lowerId) {
+                    "ayaan" -> "ayianrana20133@gmail.com"
+                    "ranasalar" -> "ranasalar964@gmail.com"
+                    else -> null
+                }
+                mappedAdminEmail
+                    ?: userDao.getUserByUsername(lowerId)?.email?.takeIf { it.isNotBlank() }
+                    ?: run {
+                        val matchedUser = try {
+                            firestore.collection("users")
+                                .whereEqualTo("username", lowerId)
+                                .limit(1)
+                                .get()
+                                .await()
+                                .documents
+                                .firstOrNull()
+                        } catch (error: Exception) {
+                            Log.w(TAG, "Could not resolve username from Firestore.", error)
+                            null
+                        }
+                        matchedUser?.getString("email")?.takeIf { it.isNotBlank() }
+                            ?: throw IllegalArgumentException(
+                                "Account not found on this device. Sign in with your email address."
+                            )
+                    }
             }
 
             try {
@@ -477,8 +499,12 @@ class AyaanAuthRepository(context: Context) {
             createdAt = existing?.createdAt?.takeIf { it > 0L } ?: createdAt,
             isRemoved = false,
             activitySummary = "Active in App",
-            subscriptionPlan = existing?.subscriptionPlan ?: if (role == "ADMIN") "PRO_YEARLY" else "FREE",
-            proExpiresAt = existing?.proExpiresAt ?: 0L,
+            subscriptionPlan = if (role == "ADMIN") "PRO_YEARLY" else existing?.subscriptionPlan ?: "FREE",
+            proExpiresAt = if (role == "ADMIN") {
+                maxOf(existing?.proExpiresAt ?: 0L, System.currentTimeMillis() + ADMIN_PRO_TERM_MILLIS)
+            } else {
+                existing?.proExpiresAt ?: 0L
+            },
             activatedProKey = existing?.activatedProKey.orEmpty()
         )
         userDao.logoutOtherUsers(entity.id)
@@ -495,5 +521,6 @@ class AyaanAuthRepository(context: Context) {
 
     companion object {
         const val TAG = "AyaanAuthRepository"
+        private const val ADMIN_PRO_TERM_MILLIS = 365L * 24L * 60L * 60L * 1000L
     }
 }
