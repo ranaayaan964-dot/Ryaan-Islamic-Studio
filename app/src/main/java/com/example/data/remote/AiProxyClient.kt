@@ -1,4 +1,4 @@
-package com.example.data.remote
+﻿package com.example.data.remote
 
 import android.util.Base64
 import com.example.BuildConfig
@@ -101,3 +101,4 @@ object AiProxyClient {
     private const val MAX_AUDIO_SIZE_BYTES = 3 * 1024 * 1024L
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 }
+
