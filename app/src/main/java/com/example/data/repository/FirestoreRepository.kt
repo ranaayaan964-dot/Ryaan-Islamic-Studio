@@ -105,7 +105,7 @@ class FirestoreRepository(
     fun submitDua(dua: DuaItem, onComplete: (Boolean) -> Unit = {}) {
         val db = firestore
         if (db == null) {
-            onComplete(true)
+            onComplete(false)
             return
         }
         try {

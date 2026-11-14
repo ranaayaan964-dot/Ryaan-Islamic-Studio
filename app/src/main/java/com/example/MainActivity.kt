@@ -69,6 +69,7 @@ import com.example.data.repository.AdminRepository
 import com.example.data.repository.ProSubscriptionRepository
 import com.example.data.model.LocationInfo
 import com.example.data.repository.LocationRepository
+import com.example.audio.AudioCacheManager
 import com.example.service.audio.QuranAudioController
 import com.example.service.location.LocationServicesWrapper
 import com.example.ui.components.UpdateDialog
@@ -102,7 +103,6 @@ import com.example.ui.screens.QuranReaderScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.ZakatCalculatorScreen
 import com.example.security.SessionManager
-import com.example.util.BatteryOptimizationHelper
 import com.example.util.UpdateViewModel
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -139,6 +139,7 @@ enum class EnterpriseFeatureScreen {
     HIFZ_RECORDING,
     QAZA_NAMAZ,
     USER_ADMIN_INBOX,
+    TASBEEH,
     PRO_ACTIVATION
 }
 
@@ -163,15 +164,13 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         enableEdgeToEdge()
 
-        // MODULE 17: Request battery optimization whitelist & OEM background persistence
-        BatteryOptimizationHelper.requestIgnoreBatteryOptimization(this)
-
         lifecycleScope.launch(Dispatchers.IO) {
+            AudioCacheManager.initialize(this@MainActivity)
+            NamazWorkManagerScheduler.cancelScheduledMetadataAlarms(this@MainActivity)
             PrayerAlarmService.createNotificationChannel(this@MainActivity)
             PrayerAlarmScheduler.ensureAllAlarmsScheduled(this@MainActivity)
 
             NamazAlarmWorker.createNamazNotificationChannel(this@MainActivity)
-            NamazWorkManagerScheduler.scheduleAllNamazFromMetadata(this@MainActivity)
             NamazWorkManagerScheduler.schedulePeriodicDailySync(this@MainActivity)
         }
 
@@ -640,6 +639,11 @@ fun MainAppContainer(
                         onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE }
                     )
                 }
+                EnterpriseFeatureScreen.TASBEEH -> {
+                    com.example.ui.screens.TasbeehScreen(
+                        onNavigateBack = { activeEnterpriseScreen = EnterpriseFeatureScreen.NONE }
+                    )
+                }
                 EnterpriseFeatureScreen.NONE -> {
                     when (selectedTab) {
                         0 -> NextGenDashboardScreen(
@@ -657,6 +661,10 @@ fun MainAppContainer(
                             onNavigateToTahajjud = { activeEnterpriseScreen = EnterpriseFeatureScreen.TAHAJJUD_WAKEUP },
                             onNavigateToQaza = { activeEnterpriseScreen = EnterpriseFeatureScreen.QAZA_NAMAZ },
                             onNavigateToAdminInbox = { activeEnterpriseScreen = EnterpriseFeatureScreen.USER_ADMIN_INBOX },
+                            onNavigateToHalalScanner = { activeEnterpriseScreen = EnterpriseFeatureScreen.HALAL_SCANNER },
+                            onNavigateToFamilyTracker = { activeEnterpriseScreen = EnterpriseFeatureScreen.FAMILY_TRACKER },
+                            onNavigateToTasbeeh = { activeEnterpriseScreen = EnterpriseFeatureScreen.TASBEEH },
+                            onNavigateToHifzStudio = { activeEnterpriseScreen = EnterpriseFeatureScreen.HIFZ_RECORDING },
                             onOpenProActivation = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRO_ACTIVATION },
                             isAdmin = isAdmin,
                             onOpenAdminDashboard = onOpenAdminDashboard

@@ -65,6 +65,7 @@ import com.example.data.database.AppDatabase
 import com.example.data.repository.SettingsRepository
 import com.example.data.repository.ProSubscriptionRepository
 import com.example.security.SessionManager
+import com.example.util.BatteryOptimizationHelper
 import com.example.ui.theme.CharcoalPrimary
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.DeepRoyalEmerald
@@ -387,6 +388,36 @@ fun SettingsScreen(
                                 checkedTrackColor = DeepRoyalEmerald
                             )
                         )
+                    }
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = PureWhite),
+                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Background reliability",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CharcoalPrimary
+                    )
+                    Text(
+                        text = "Battery optimization settings can affect scheduled prayer reminders.",
+                        fontSize = 12.sp,
+                        color = SlateMuted
+                    )
+                    OutlinedButton(
+                        onClick = { BatteryOptimizationHelper.requestIgnoreBatteryOptimization(context) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open battery optimization settings")
                     }
                 }
             }

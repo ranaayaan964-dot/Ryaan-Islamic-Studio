@@ -9,10 +9,14 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * MODULE: SOUND PREVIEW PLAYER (VERSION 1.1 HARDENED AUDIO ENGINE)
@@ -51,20 +55,23 @@ object SoundPreviewPlayer {
 
         prepareJob = CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Ensure audio is cached or resolved
                 val uriStr = if (AudioCacheManager.isSoundAvailableLocally(context, sound)) {
                     AudioCacheManager.resolvePlayableUri(context, sound)
                 } else {
-                    // Download & cache in background, or fallback to synthesized tone
-                    var resolvedUri: String = sound.remoteAudioUrl
-                    AudioCacheManager.downloadAndCacheSound(
-                        context,
-                        sound,
-                        onSuccess = { cachedUri ->
-                            resolvedUri = cachedUri
-                        }
-                    )
-                    AudioCacheManager.resolvePlayableUri(context, sound)
+                    suspendCancellableCoroutine { continuation ->
+                        AudioCacheManager.downloadAndCacheSound(
+                            context,
+                            sound,
+                            onSuccess = { cachedUri ->
+                                if (continuation.isActive) continuation.resume(cachedUri)
+                            },
+                            onError = { message ->
+                                if (continuation.isActive) {
+                                    continuation.resumeWithException(IllegalStateException(message))
+                                }
+                            }
+                        )
+                    }
                 }
 
                 withContext(Dispatchers.Main) {
@@ -75,10 +82,12 @@ object SoundPreviewPlayer {
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error initiating preview for ${sound.title}: ${e.message}", e)
                 withContext(Dispatchers.Main) {
-                    stop()
+                    if (_playingSoundId.value == sound.id) stop()
                 }
             }
         }
@@ -111,7 +120,7 @@ object SoundPreviewPlayer {
                 setOnPreparedListener { mp ->
                     synchronized(playerLock) {
                         try {
-                            if (_playingSoundId.value == soundId) {
+                            if (_playingSoundId.value == soundId && mediaPlayer === mp) {
                                 _isLoading.value = false
                                 _isPlaying.value = true
                                 mp.start()
@@ -129,21 +138,20 @@ object SoundPreviewPlayer {
 
                 setOnCompletionListener {
                     synchronized(playerLock) {
-                        stop()
+                        if (mediaPlayer === it && _playingSoundId.value == soundId) stop()
                     }
                 }
 
-                setOnErrorListener { _, what, extra ->
+                setOnErrorListener { failedPlayer, what, extra ->
                     Log.e(TAG, "MediaPlayer error: what=$what, extra=$extra for $soundId")
                     synchronized(playerLock) {
-                        stop()
+                        if (mediaPlayer === failedPlayer && _playingSoundId.value == soundId) stop()
                     }
                     true
                 }
-
-                prepareAsync()
             }
             mediaPlayer = player
+            player.prepareAsync()
         } catch (ise: IllegalStateException) {
             Log.e(TAG, "IllegalStateException during startPlayback for $soundId", ise)
             stop()

@@ -107,7 +107,7 @@ import com.example.data.model.PrayerType
 import com.example.data.model.SahiwalPrayerSchedule
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.data.repository.LocationRepository
+import com.example.service.location.LocationServicesWrapper
 import com.example.data.repository.AladhanRepository
 import com.example.data.repository.PrayerApiProvider
 import com.example.service.AutoSilentManager
@@ -154,6 +154,10 @@ fun NextGenDashboardScreen(
     onNavigateToTahajjud: (() -> Unit)? = null,
     onNavigateToQaza: (() -> Unit)? = null,
     onNavigateToAdminInbox: (() -> Unit)? = null,
+    onNavigateToHalalScanner: (() -> Unit)? = null,
+    onNavigateToFamilyTracker: (() -> Unit)? = null,
+    onNavigateToTasbeeh: (() -> Unit)? = null,
+    onNavigateToHifzStudio: (() -> Unit)? = null,
     onOpenProActivation: () -> Unit = {},
     isAdmin: Boolean = false,
     onOpenAdminDashboard: (() -> Unit)? = null
@@ -206,6 +210,8 @@ fun NextGenDashboardScreen(
 
     // Auto-Silent & Tahajjud States
     val autoSilentState by AutoSilentManager.silentState.collectAsStateWithLifecycle()
+    val locationServices = remember(context) { LocationServicesWrapper.getInstance(context) }
+    val cachedLocation by locationServices.currentLocationState.collectAsStateWithLifecycle()
     val tahajjudState by TahajjudAlarmManager.state.collectAsStateWithLifecycle()
     var hasDndPermission by remember { mutableStateOf(true) }
 
@@ -265,17 +271,15 @@ fun NextGenDashboardScreen(
                     PrayerAlarmScheduler.scheduleAllActivePrayers(context, items)
                 }
 
-                // Evaluate auto-silent condition using the latest cached location instead of hardcoded coordinates
+                val location = locationServices.currentLocationState.value
+                val hasCalibratedLocation = location.isFresh()
                 withContext(Dispatchers.IO) {
-                    val location = try {
-                        LocationRepository.getCachedLocation(context)
-                    } catch (e: Exception) {
-                        android.util.Log.w("NextGenDashboard", "Could not read cached location after prayer refresh", e)
-                        null
-                    }
-                    val lat = location?.latitude
-                    val lng = location?.longitude
-                    AutoSilentManager.evaluateSilentCondition(context, items, lat, lng)
+                    AutoSilentManager.evaluateSilentCondition(
+                        context,
+                        items,
+                        location.latitude.takeIf { hasCalibratedLocation },
+                        location.longitude.takeIf { hasCalibratedLocation }
+                    )
                 }
             }
             isLoading = false
@@ -287,7 +291,7 @@ fun NextGenDashboardScreen(
     }
 
     // Update small prayer badges each second, but query location and system DND only once per minute.
-    LaunchedEffect(prayerItems.size) {
+    LaunchedEffect(prayerItems.size, cachedLocation.timestamp) {
         var lastAutoSilentEvaluationMillis = 0L
         while (true) {
             val state = PrayerCountdownEngine.countdownState.value
@@ -306,17 +310,12 @@ fun NextGenDashboardScreen(
                 lastAutoSilentEvaluationMillis = now
                 val prayers = prayerItems.toList()
                 withContext(Dispatchers.IO) {
-                    val location = try {
-                        LocationRepository.getCachedLocation(context)
-                    } catch (e: Exception) {
-                        android.util.Log.w("NextGenDashboard", "Could not read cached location for Auto-Silent", e)
-                        null
-                    }
+                    val hasCalibratedLocation = cachedLocation.isFresh()
                     AutoSilentManager.evaluateSilentCondition(
                         context,
                         prayers,
-                        location?.latitude,
-                        location?.longitude
+                        cachedLocation.latitude.takeIf { hasCalibratedLocation },
+                        cachedLocation.longitude.takeIf { hasCalibratedLocation }
                     )
                 }
             }
@@ -1199,7 +1198,7 @@ fun NextGenDashboardScreen(
                         letterSpacing = 1.sp
                     )
                     Text(
-                        text = "9 Active Modules",
+                        text = "13 Active Modules",
                         fontSize = 10.5.sp,
                         color = GoldAccent
                     )
@@ -1303,6 +1302,74 @@ fun NextGenDashboardScreen(
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(text = "Kids Cinema", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             Text(text = "Prophet Stories & YouTube", fontSize = 10.sp, color = Color(0xFFFF8A80))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    GlassCard(
+                        modifier = Modifier.weight(1f).clickable { onNavigateToHalalScanner?.invoke() },
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color(0xFF6EE7B7))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Halal E-Code Scanner", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Scan ingredient codes", fontSize = 10.sp, color = Color(0xFF6EE7B7))
+                        }
+                    }
+                    GlassCard(
+                        modifier = Modifier.weight(1f).clickable { onNavigateToFamilyTracker?.invoke() },
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = GoldPrimary)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Hajj Family Radar", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Family location & SOS", fontSize = 10.sp, color = GoldAccent)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth().clickable { onNavigateToTasbeeh?.invoke() },
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = GoldPrimary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Digital Tasbeeh", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Dhikr counter with haptic feedback", fontSize = 10.sp, color = GoldAccent)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth().clickable { onNavigateToHifzStudio?.invoke() },
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Mosque, contentDescription = null, tint = Color(0xFF6EE7B7))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("30-Juz Hifz Studio", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Recitation recording and review", fontSize = 10.sp, color = Color(0xFF6EE7B7))
                         }
                     }
                 }

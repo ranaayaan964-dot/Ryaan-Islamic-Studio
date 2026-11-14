@@ -707,11 +707,15 @@ class PrayerAlarmService : Service() {
     private fun boostAlarmVolume() {
         val manager = audioManager ?: return
         try {
-            if (originalAlarmVolume == null) {
-                originalAlarmVolume = manager.getStreamVolume(AudioManager.STREAM_ALARM)
+            val currentVolume = manager.getStreamVolume(AudioManager.STREAM_ALARM)
+            if (currentVolume == 0) {
+                if (originalAlarmVolume == null) originalAlarmVolume = currentVolume
+                val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+                if (maxVolume > 0) {
+                    val comfortableVolume = (maxVolume * 0.7f).toInt().coerceIn(1, maxVolume)
+                    manager.setStreamVolume(AudioManager.STREAM_ALARM, comfortableVolume, 0)
+                }
             }
-            val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-            manager.setStreamVolume(AudioManager.STREAM_ALARM, maxVolume, 0)
         } catch (e: Exception) {
             Log.w(TAG, "Could not raise alarm stream volume", e)
         }

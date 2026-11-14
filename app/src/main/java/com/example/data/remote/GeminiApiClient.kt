@@ -10,7 +10,15 @@ import com.squareup.moshi.JsonClass
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 // --- Gemini Request / Response DTOs using Moshi ---
 
@@ -168,6 +176,14 @@ enum class GeminiChatbotRole(
  */
 object GeminiApiClient {
     private const val TAG = "GeminiApiClient"
+    private const val GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
+    private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(40, TimeUnit.SECONDS)
+        .build()
 
     fun getResolvedGeminiKey(): String {
         val buildKey = try {
@@ -187,23 +203,58 @@ object GeminiApiClient {
         role: GeminiChatbotRole
     ): Result<GeminiChatResult> = withContext(Dispatchers.IO) {
         try {
-            val recentHistory = conversationHistory.takeLast(12)
-            val fullPrompt = buildString {
-                if (recentHistory.isNotEmpty()) {
-                    appendLine("Conversation context:")
-                    recentHistory.forEach { turn ->
-                        appendLine("${if (turn.isFromUser) "User" else "Assistant"}: ${turn.text}")
-                    }
-                    appendLine()
-                }
-                append("Current user message: ")
-                append(prompt)
+            val key = getResolvedGeminiKey()
+            check(key.isNotBlank()) { "Gemini API key is not configured." }
+            require(prompt.isNotBlank()) { "Enter a message before sending." }
+            val contents = JSONArray()
+            conversationHistory.takeLast(12).forEach { turn ->
+                contents.put(
+                    JSONObject()
+                        .put("role", if (turn.isFromUser) "user" else "model")
+                        .put("parts", JSONArray().put(JSONObject().put("text", turn.text)))
+                )
             }
-            val routed = DualAiScholarEngine.askScholarWithSource(fullPrompt, role.systemPrompt)
+            contents.put(
+                JSONObject()
+                    .put("role", "user")
+                    .put("parts", JSONArray().put(JSONObject().put("text", prompt)))
+            )
+            val requestBody = JSONObject()
+                .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", role.systemPrompt))))
+                .put("contents", contents)
+                .put("generationConfig", JSONObject().put("temperature", 0.7).put("maxOutputTokens", 2048))
+                .toString()
+            val model = role.modelName
+            val url = "$GEMINI_ENDPOINT/$model:generateContent"
+                .toHttpUrl()
+                .newBuilder()
+                .addQueryParameter("key", key)
+                .build()
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody.toRequestBody(jsonMediaType))
+                .build()
+            val reply = httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                check(response.isSuccessful) {
+                    "Gemini request failed with HTTP ${response.code}: ${JSONObject(body).optJSONObject("error")?.optString("message").orEmpty()}"
+                }
+                JSONObject(body)
+                    .getJSONArray("candidates")
+                    .getJSONObject(0)
+                    .getJSONObject("content")
+                    .getJSONArray("parts")
+                    .let { parts ->
+                        (0 until parts.length()).mapNotNull { parts.optJSONObject(it)?.optString("text") }
+                            .joinToString("\n")
+                            .trim()
+                    }
+                    .also { check(it.isNotBlank()) { "Gemini returned an empty response." } }
+            }
             Result.success(
                 GeminiChatResult(
-                    reply = routed.answer,
-                    modelUsed = routed.source,
+                    reply = reply,
+                    modelUsed = model,
                     roleTitle = role.title,
                     taskComplexity = role.taskComplexity
                 )
@@ -211,8 +262,98 @@ object GeminiApiClient {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "AI provider router failed for Gemini chat: ${e.message}", e)
-            Result.failure(e)
+            Log.w(TAG, "Gemini multi-turn request failed; trying the configured provider router.", e)
+            try {
+                val fullPrompt = buildString {
+                    conversationHistory.takeLast(12).forEach { turn ->
+                        appendLine("${if (turn.isFromUser) "User" else "Assistant"}: ${turn.text}")
+                    }
+                    append("Current user message: ")
+                    append(prompt)
+                }
+                val routed = DualAiScholarEngine.askScholarWithSource(fullPrompt, role.systemPrompt)
+                Result.success(
+                    GeminiChatResult(
+                        reply = routed.answer,
+                        modelUsed = routed.source,
+                        roleTitle = role.title,
+                        taskComplexity = role.taskComplexity
+                    )
+                )
+            } catch (fallbackError: CancellationException) {
+                throw fallbackError
+            } catch (fallbackError: Exception) {
+                Log.e(TAG, "Gemini and provider-router requests both failed.", fallbackError)
+                Result.failure(fallbackError)
+            }
+        }
+    }
+
+    suspend fun analyzeImage(
+        imageBase64: String,
+        prompt: String,
+        systemPrompt: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val key = getResolvedGeminiKey()
+            check(key.isNotBlank()) { "Gemini API key is not configured." }
+            require(imageBase64.isNotBlank() && prompt.isNotBlank() && systemPrompt.isNotBlank()) {
+                "An image, system prompt, and analysis prompt are required."
+            }
+            val requestBody = JSONObject()
+                .put(
+                    "systemInstruction",
+                    JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt)))
+                )
+                .put(
+                    "contents",
+                    JSONArray().put(
+                        JSONObject().put(
+                            "parts",
+                            JSONArray()
+                                .put(JSONObject().put("text", prompt))
+                                .put(
+                                    JSONObject().put(
+                                        "inlineData",
+                                        JSONObject()
+                                            .put("mimeType", "image/jpeg")
+                                            .put("data", imageBase64)
+                                    )
+                                )
+                        )
+                    )
+                )
+                .put("generationConfig", JSONObject().put("temperature", 0.2).put("maxOutputTokens", 2048))
+                .toString()
+            val url = "$GEMINI_ENDPOINT/gemini-2.5-flash:generateContent"
+                .toHttpUrl()
+                .newBuilder()
+                .addQueryParameter("key", key)
+                .build()
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody.toRequestBody(jsonMediaType))
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                check(response.isSuccessful) {
+                    "Gemini image analysis failed with HTTP ${response.code}: ${JSONObject(body).optJSONObject("error")?.optString("message").orEmpty()}"
+                }
+                JSONObject(body)
+                    .getJSONArray("candidates")
+                    .getJSONObject(0)
+                    .getJSONObject("content")
+                    .getJSONArray("parts")
+                    .let { parts ->
+                        (0 until parts.length()).mapNotNull { parts.optJSONObject(it)?.optString("text") }
+                            .joinToString("\n")
+                            .trim()
+                    }
+                    .also { check(it.isNotBlank()) { "Gemini returned no image analysis." } }
+            }
+        }.onFailure { error ->
+            if (error is CancellationException) throw error
+            Log.e(TAG, "Gemini image analysis failed.", error)
         }
     }
 

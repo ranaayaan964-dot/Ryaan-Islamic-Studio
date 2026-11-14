@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.VolumeUp
@@ -67,7 +68,7 @@ import com.example.ui.theme.LightEmeraldBackground
 import com.example.ui.theme.LocalThemeIsDark
 
 @Composable
-fun TasbeehScreen() {
+fun TasbeehScreen(onNavigateBack: (() -> Unit)? = null) {
     val context = LocalContext.current
 
     val dhikrList = remember {
@@ -151,7 +152,13 @@ fun TasbeehScreen() {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onNavigateBack != null) {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                    Column {
                     Text(
                         text = "Digital Tasbeeh",
                         fontSize = 24.sp,
@@ -163,6 +170,7 @@ fun TasbeehScreen() {
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    }
                 }
 
                 Row {

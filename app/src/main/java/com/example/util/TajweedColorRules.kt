@@ -103,6 +103,9 @@ object TajweedColorRules {
 
         val qalqalahChars = setOf('\u0642', '\u0637', '\u0628', '\u062C', '\u062F')
         val maddChars = setOf('~', '\u0622', '\u0653', '\u0670')
+        val ghunnahChars = setOf('\u0646', '\u0645')
+        val iqlabChars = setOf('\u06E2', '\u06ED')
+        val sukunChars = setOf('\u0652', '\u06E1')
 
         return buildAnnotatedString {
             var i = 0
@@ -123,8 +126,8 @@ object TajweedColorRules {
                 }
 
                 // Check Iqlab (small meem marker ۢ)
-                if (ch == '\u06E2' || ch == '\u06ED' ||
-                    (i + 1 < len && (arabicText[i + 1] == '\u06E2' || arabicText[i + 1] == '\u06ED'))
+                if (ch in iqlabChars ||
+                    (i + 1 < len && arabicText[i + 1] in iqlabChars)
                 ) {
                     val start = i
                     val end = (i + 2).coerceAtMost(len)
@@ -136,7 +139,7 @@ object TajweedColorRules {
                 }
 
                 // Check Ghunnah: Noon (ن) or Meem (م) followed by Shaddah (ّ)
-                if ((ch == '\u0646' || ch == '\u0645') && i + 1 < len && arabicText[i + 1] == '\u0651') {
+                if (ch in ghunnahChars && i + 1 < len && arabicText[i + 1] == '\u0651') {
                     val start = i
                     // span across the letter, shaddah, and possible harakah
                     var end = i + 2
@@ -150,8 +153,7 @@ object TajweedColorRules {
 
                 // Check Qalqalah: letters 'ق', 'ط', 'ب', 'ج', 'د' with Sukun or at word boundary
                 if (qalqalahChars.contains(ch)) {
-                    val hasSukun = i + 1 < len &&
-                        (arabicText[i + 1] == '\u0652' || arabicText[i + 1] == '\u06E1')
+                    val hasSukun = i + 1 < len && arabicText[i + 1] in sukunChars
                     if (hasSukun) {
                         val start = i
                         val end = i + 2

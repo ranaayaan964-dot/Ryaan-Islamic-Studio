@@ -180,6 +180,8 @@ object PrayerAlarmScheduler {
             )
             scheduleExactOrAllowWhileIdle(alarmManager, pre15Time, pre15PendingIntent)
             Log.d(TAG, "Scheduled 15-MIN pre-reminder for ${prayer.type.displayName} at $pre15Time (rc=$pre15RequestCode)")
+        } else {
+            cancelScheduledAlarm(alarmManager, context, baseRequestCode + REQUEST_CODE_OFFSET_15_MIN)
         }
 
         // 3. 5-MINUTE AUDIO ALERT ENGINE (Foreground Service + Quranic Ayat / Durood / Naat)
@@ -201,7 +203,27 @@ object PrayerAlarmScheduler {
             )
             scheduleExactOrAllowWhileIdle(alarmManager, pre5Time, pre5PendingIntent)
             Log.d(TAG, "Scheduled 5-MIN AUDIO alert for ${prayer.type.displayName} at $pre5Time (rc=$pre5RequestCode)")
+        } else {
+            cancelScheduledAlarm(alarmManager, context, baseRequestCode + REQUEST_CODE_OFFSET_5_MIN)
         }
+    }
+
+    private fun cancelScheduledAlarm(
+        alarmManager: AlarmManager,
+        context: Context,
+        requestCode: Int
+    ) {
+        val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+            action = "com.example.ACTION_PRAYER_ALARM"
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        ) ?: return
+        alarmManager.cancel(pendingIntent)
+        pendingIntent.cancel()
     }
 
     private fun scheduleExactOrAllowWhileIdle(

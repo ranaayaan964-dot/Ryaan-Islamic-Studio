@@ -188,7 +188,7 @@ object QuranSeedData {
                 verseNumber = 6,
                 textArabic = "اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ",
                 textEnglishTranslation = "Guide us to the straight path -",
-                textUrduTranslation = "ہم کو سیدھے رستے پر چلا",
+                textUrduTranslation = "ہم کو سیدھے رستے چلا",
                 tafsirIbnKathir = "Asking for steadfast guidance on the clear path of truth exemplified by the Prophet and his companions.",
                 audioStartTimeMs = 25500L,
                 audioEndTimeMs = 31000L
@@ -199,7 +199,7 @@ object QuranSeedData {
                 verseNumber = 7,
                 textArabic = "صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ",
                 textEnglishTranslation = "The path of those upon whom You have bestowed favor, not of those who have evoked [Your] anger or of those who are astray.",
-                textUrduTranslation = "ان لوگوں کے رستے پر جن پر تو اپنا فضل و کرم کرتا رہا۔ نہ ان کے جن پر غضب ہوتا رہا اور نہ گمراہوں کے",
+                textUrduTranslation = "ان لوگوں کے رستے جن پر تو اپنا فضل وکرم کرتا رہا نہ ان کے جن پر غصے ہوتا رہا اور نہ گمراہوں کے",
                 tafsirIbnKathir = "Those favored are the Prophets, the truthful, the martyrs, and the righteous. It concludes with saying 'Ameen'.",
                 audioStartTimeMs = 31000L,
                 audioEndTimeMs = 41500L

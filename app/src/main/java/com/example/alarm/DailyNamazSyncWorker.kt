@@ -5,10 +5,11 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.data.repository.AladhanRepository
+import kotlinx.coroutines.CancellationException
 
 /**
- * Periodic WorkManager Worker that ensures all daily namaz alarm workers
- * specified in app metadata remain armed and synchronized.
+ * Periodic WorkManager worker that refreshes exact prayer alarms from the
+ * calculated schedule without creating duplicate metadata-based alerts.
  */
 class DailyNamazSyncWorker(
     private val context: Context,
@@ -21,24 +22,21 @@ class DailyNamazSyncWorker(
     }
 
     override suspend fun doWork(): Result {
-        Log.d(TAG, "Running daily Namaz background sync from app metadata...")
+        Log.d(TAG, "Refreshing exact prayer alarms from the calculated schedule...")
         return try {
             val prayerSchedule = try {
                 AladhanRepository.fetchSahiwalPrayerTimings().getOrThrow()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Prayer-time refresh failed; calculating today's schedule locally", e)
                 AladhanRepository.getSahiwalFallbackSchedule()
             }
             PrayerAlarmScheduler.scheduleAllActivePrayers(context, prayerSchedule.second)
-
-            val config = NamazMetadataProvider.loadNamazMetadata(context)
-            if (config.notificationsEnabled) {
-                NamazWorkManagerScheduler.scheduleAllNamazFromMetadata(context)
-                Log.d(TAG, "Successfully synced all daily namaz workers from metadata.")
-            } else {
-                Log.d(TAG, "Namaz notifications disabled in metadata; skipping schedule.")
-            }
+            Log.d(TAG, "Successfully refreshed exact prayer alarms.")
             Result.success()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync daily namaz workers: ${e.message}", e)
             Result.retry()

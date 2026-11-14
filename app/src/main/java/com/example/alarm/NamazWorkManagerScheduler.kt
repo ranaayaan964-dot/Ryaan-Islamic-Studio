@@ -23,6 +23,13 @@ object NamazWorkManagerScheduler {
     const val TAG_NAMAZ_WORK = "tag_namaz_workmanager"
     const val TAG_NAMAZ_PERIODIC = "tag_namaz_periodic"
 
+    fun cancelScheduledMetadataAlarms(context: Context) {
+        val workManager = WorkManager.getInstance(context)
+        workManager.cancelAllWorkByTag(TAG_NAMAZ_WORK)
+        workManager.cancelAllWorkByTag(TAG_NAMAZ_PERIODIC)
+        workManager.cancelUniqueWork(DailyNamazSyncWorker.UNIQUE_PERIODIC_NAME)
+    }
+
     /**
      * Reads all daily namaz times from AndroidManifest metadata and schedules
      * background OneTimeWorkRequests with precise initial delay for each prayer.

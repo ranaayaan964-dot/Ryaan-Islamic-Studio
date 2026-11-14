@@ -4,6 +4,10 @@ import android.Manifest
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.graphics.ImageFormat
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.util.Base64
 import android.util.Log
 import android.view.ViewGroup
@@ -15,6 +19,7 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCase
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -84,7 +89,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.example.data.remote.DualAiScholarEngine
+import com.example.data.remote.GeminiApiClient
 import com.example.data.repository.ProSubscriptionRepository
 import com.example.ui.components.NeumorphicCard
 import com.example.ui.components.ProUpgradeDialog
@@ -102,11 +107,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class OcrScanResult(
     val extractedArabic: String,
     val englishTranslation: String,
-    val urduTranslation: String = "اللہ کے نام سے جو نہایت مہربان اور بے حد رحم فرمانے والا ہے۔",
+    val urduTranslation: String = "",
     val fiqhContext: String
 )
 
@@ -133,13 +139,21 @@ fun ArabicScannerScreen(
     var showProUpgradeDialog by remember { mutableStateOf(false) }
 
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    val cameraScreenDisposed = remember { AtomicBoolean(false) }
+    var boundCameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var boundCameraUseCases by remember { mutableStateOf<List<UseCase>>(emptyList()) }
 
     DisposableEffect(cameraExecutor) {
+        cameraScreenDisposed.set(false)
         onDispose {
-            try {
-                cameraExecutor.shutdown()
-            } catch (_: Exception) {
+            cameraScreenDisposed.set(true)
+            if (boundCameraUseCases.isNotEmpty()) {
+                boundCameraProvider?.unbind(*boundCameraUseCases.toTypedArray())
             }
+            boundCameraUseCases = emptyList()
+            boundCameraProvider = null
+            imageCapture = null
+            cameraExecutor.shutdown()
         }
     }
 
@@ -181,47 +195,60 @@ fun ArabicScannerScreen(
             cameraExecutor,
             object : ImageCapture.OnImageCapturedCallback() {
                 override fun onCaptureSuccess(image: ImageProxy) {
-                    val bitmap = imageProxyToBitmap(image)
+                    val bitmap = try {
+                        imageProxyToBitmap(image)
+                    } catch (e: Exception) {
+                        image.close()
+                        Log.e("ArabicScanner", "Could not decode captured image.", e)
+                        ContextCompat.getMainExecutor(context).execute {
+                            isProcessingImage = false
+                            Toast.makeText(context, "Could not read the captured image.", Toast.LENGTH_SHORT).show()
+                        }
+                        return
+                    }
                     image.close()
 
                     scope.launch {
                         try {
-                            val base64 = bitmapToBase64(bitmap)
+                            val base64 = withContext(Dispatchers.IO) { bitmapToBase64(bitmap) }
+                            val systemPrompt = """
+                                You are an Arabic document OCR assistant. Read only text visible in the supplied image.
+                                Do not guess illegible words or invent religious rulings, sources, or quotations.
+                                Clearly mark uncertain text as [unclear].
+                            """.trimIndent()
                             val prompt = """
-                                You are a highly qualified Islamic Scholar and certified translator. Your task is to translate the following Arabic text (from the Quran, Hadith, or Fiqh) verbatim into English and Urdu. DO NOT add any personal opinions, DO NOT summarize, and DO NOT hallucinate meanings. If you cannot perfectly translate a word, leave it in Arabic. Accuracy is a matter of strict religious compliance.
-
-                                Analyze the scanned Arabic calligraphy / Fatwa document using the full image payload below.
-                                [Image Data: base64_${base64}]
-
-                                Provide structured response:
-                                1. EXTRACTED ARABIC TEXT: Transcribe the exact Arabic text.
-                                2. TRANSLATION: Provide both a verbatim English translation and an accurate Urdu translation.
-                                3. CONTEXT & FIQH COMMENTARY: Islamic context, script style (Thuluth, Naskh, Diwani), or legal rulings if a Fatwa document.
+                                Transcribe legible Arabic, then provide an English and Urdu translation where possible.
+                                Briefly describe the document or script. Keep these sections clearly labeled:
+                                EXTRACTED ARABIC TEXT, ENGLISH TRANSLATION, URDU TRANSLATION, CONTEXT.
                             """.trimIndent()
 
-                            val result = DualAiScholarEngine.askScholar(
-                                context = context,
-                                userQuery = prompt,
-                                isFatwaRequest = true
-                            )
-
-                            scanResult = parseOcrResult(result.answer)
+                            val result = GeminiApiClient.analyzeImage(base64, prompt, systemPrompt).getOrThrow()
+                            scanResult = parseOcrResult(result)
                         } catch (e: Exception) {
-                            scanResult = OcrScanResult(
-                                extractedArabic = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\nإِنَّ مَعَ الْعُسْرِ يُسْرًا",
-                                englishTranslation = "In the name of Allah, the Entirely Merciful, the Especially Merciful.\nIndeed, with hardship comes ease. [Surah Ash-Sharh 94:6]",
-                                urduTranslation = "اللہ کے نام سے جو نہایت مہربان اور بے حد رحم فرمانے والا ہے۔\nبیشک ہر تنگی کے ساتھ آسانی ہے۔ [سورۃ الشرح ۹۴:۶]",
-                                fiqhContext = "Script: Classical Andalusian / Naskh script. The verse promises immediate divine relief and solace during trials. Recommends patience (Sabr) and gratitude (Shukr)."
-                            )
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            Log.e("ArabicScanner", "Image analysis failed.", e)
+                            Toast.makeText(
+                                context,
+                                "Image analysis failed: ${e.localizedMessage ?: "Please try again."}",
+                                Toast.LENGTH_LONG
+                            ).show()
                         } finally {
                             isProcessingImage = false
+                            if (!bitmap.isRecycled) bitmap.recycle()
                         }
                     }
                 }
 
                 override fun onError(exception: ImageCaptureException) {
-                    isProcessingImage = false
                     Log.e("ArabicScanner", "Photo capture failed: ${exception.message}", exception)
+                    ContextCompat.getMainExecutor(context).execute {
+                        isProcessingImage = false
+                        Toast.makeText(
+                            context,
+                            "Photo capture failed: ${exception.message ?: "Please try again."}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             }
         )
@@ -248,6 +275,8 @@ fun ArabicScannerScreen(
 
                     val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                     cameraProviderFuture.addListener({
+                        if (cameraScreenDisposed.get()) return@addListener
+
                         val cameraProvider = cameraProviderFuture.get()
                         val preview = Preview.Builder().build().also {
                             it.setSurfaceProvider(previewView.surfaceProvider)
@@ -268,6 +297,8 @@ fun ArabicScannerScreen(
                                 preview,
                                 capture
                             )
+                            boundCameraProvider = cameraProvider
+                            boundCameraUseCases = listOf(preview, capture)
                         } catch (exc: Exception) {
                             Log.e("ArabicScanner", "Use case binding failed", exc)
                         }
@@ -628,31 +659,115 @@ fun ArabicScannerScreen(
 }
 
 private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
-    val buffer = image.planes[0].buffer
-    val bytes = ByteArray(buffer.remaining())
-    buffer.get(bytes)
-    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    val decoded = when (image.format) {
+        ImageFormat.JPEG -> {
+            val buffer = image.planes.firstOrNull()?.buffer?.duplicate()
+                ?: error("JPEG capture has no image plane.")
+            val bytes = ByteArray(buffer.remaining())
+            buffer.get(bytes)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                ?: error("Captured JPEG could not be decoded.")
+        }
+        ImageFormat.YUV_420_888 -> {
+            val nv21 = imageProxyToNv21(image)
+            val output = ByteArrayOutputStream()
+            val yuvImage = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
+            check(yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 92, output)) {
+                "Could not convert captured YUV image to JPEG."
+            }
+            val jpeg = output.toByteArray()
+            BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+                ?: error("Converted JPEG could not be decoded.")
+        }
+        else -> error("Unsupported CameraX image format: ${image.format}")
+    }
+    val crop = image.cropRect
+    val cropped = if (crop.left == 0 && crop.top == 0 && crop.right == decoded.width && crop.bottom == decoded.height) {
+        decoded
+    } else {
+        Bitmap.createBitmap(decoded, crop.left, crop.top, crop.width(), crop.height())
+            .also { if (it !== decoded) decoded.recycle() }
+    }
+    val rotation = image.imageInfo.rotationDegrees
+    if (rotation == 0) return cropped
+    val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+    val rotated = Bitmap.createBitmap(cropped, 0, 0, cropped.width, cropped.height, matrix, true)
+    if (rotated !== cropped) cropped.recycle()
+    return rotated
+}
+
+private fun imageProxyToNv21(image: ImageProxy): ByteArray {
+    require(image.width % 2 == 0 && image.height % 2 == 0) {
+        "YUV capture dimensions must be even."
+    }
+    val yPlane = image.planes.getOrNull(0) ?: error("YUV capture is missing its Y plane.")
+    val uPlane = image.planes.getOrNull(1) ?: error("YUV capture is missing its U plane.")
+    val vPlane = image.planes.getOrNull(2) ?: error("YUV capture is missing its V plane.")
+    val yBuffer = yPlane.buffer.duplicate()
+    val uBuffer = uPlane.buffer.duplicate()
+    val vBuffer = vPlane.buffer.duplicate()
+    val width = image.width
+    val height = image.height
+    val ySize = width * height
+    val output = ByteArray(ySize + ySize / 2)
+
+    var outputIndex = 0
+    val yBase = yBuffer.position()
+    for (row in 0 until height) {
+        val rowStart = yBase + row * yPlane.rowStride
+        for (column in 0 until width) {
+            output[outputIndex++] = yBuffer.get(rowStart + column * yPlane.pixelStride)
+        }
+    }
+
+    val uBase = uBuffer.position()
+    val vBase = vBuffer.position()
+    val chromaWidth = width / 2
+    val chromaHeight = height / 2
+    for (row in 0 until chromaHeight) {
+        val uRowStart = uBase + row * uPlane.rowStride
+        val vRowStart = vBase + row * vPlane.rowStride
+        for (column in 0 until chromaWidth) {
+            val uIndex = uRowStart + column * uPlane.pixelStride
+            val vIndex = vRowStart + column * vPlane.pixelStride
+            output[outputIndex++] = vBuffer.get(vIndex)
+            output[outputIndex++] = uBuffer.get(uIndex)
+        }
+    }
+    return output
 }
 
 private fun bitmapToBase64(bitmap: Bitmap): String {
-    val outputStream = ByteArrayOutputStream()
-    // Scale down if huge to conserve memory
-    val scaled = if (bitmap.width > 800) {
-        val ratio = 800f / bitmap.width
-        Bitmap.createScaledBitmap(bitmap, 800, (bitmap.height * ratio).toInt(), true)
+    val maxDimension = maxOf(bitmap.width, bitmap.height)
+    val scaled = if (maxDimension > 1200) {
+        val ratio = 1200f / maxDimension
+        Bitmap.createScaledBitmap(
+            bitmap,
+            (bitmap.width * ratio).toInt().coerceAtLeast(1),
+            (bitmap.height * ratio).toInt().coerceAtLeast(1),
+            true
+        )
     } else {
         bitmap
     }
-    scaled.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-    return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
+    return try {
+        ByteArrayOutputStream().use { outputStream ->
+            check(scaled.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)) {
+                "Could not compress captured image."
+            }
+            Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
+        }
+    } finally {
+        if (scaled !== bitmap) scaled.recycle()
+    }
 }
 
 private fun parseOcrResult(raw: String): OcrScanResult {
     val lines = raw.lines().filter { it.isNotBlank() }
-    var arabic = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"
-    var english = "In the name of Allah, the Entirely Merciful, the Especially Merciful."
-    var urdu = "اللہ کے نام سے جو نہایت مہربان اور بے حد رحم فرمانے والا ہے۔"
-    var context = "Classical Arabic calligraphy transcribed and cross-referenced with the Islamic scholarly canon."
+    var arabic = ""
+    var english = ""
+    var urdu = ""
+    var context = ""
 
     lines.forEach { line ->
         if (line.contains("Urdu", ignoreCase = true)) {
@@ -679,9 +794,9 @@ private fun parseOcrResult(raw: String): OcrScanResult {
     }
 
     return OcrScanResult(
-        extractedArabic = arabic,
-        englishTranslation = english,
-        urduTranslation = urdu,
-        fiqhContext = context
+        extractedArabic = arabic.ifBlank { "No readable Arabic text detected." },
+        englishTranslation = english.ifBlank { "No English translation returned." },
+        urduTranslation = urdu.ifBlank { "No Urdu translation returned." },
+        fiqhContext = context.ifBlank { "No context returned." }
     )
 }

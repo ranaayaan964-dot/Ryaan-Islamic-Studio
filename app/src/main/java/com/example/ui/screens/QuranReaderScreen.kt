@@ -41,6 +41,8 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Pause
@@ -134,6 +136,10 @@ fun QuranReaderScreen(
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val quranRepository = remember { QuranRepository(context) }
+    val bookmarks by quranRepository.getAllBookmarksFlow().collectAsStateWithLifecycle(initialValue = emptyList())
+    val bookmarkedAyahs = remember(bookmarks) {
+        bookmarks.mapTo(mutableSetOf()) { it.surahId to it.verseNumber }
+    }
 
     // Handle system back navigation
     BackHandler {
@@ -403,7 +409,7 @@ fun QuranReaderScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "â–¼",
+                                    text = "▾",
                                     fontSize = 10.sp,
                                     color = PlatinumGold
                                 )
@@ -412,7 +418,7 @@ fun QuranReaderScreen(
                                 text = if (isJuzMode) {
                                     JuzCatalog.getJuzById(currentJuzNumber)?.nameArabic ?: "30 Paras"
                                 } else {
-                                    surahDataState?.info?.let { "${it.name} â€¢ ${it.numberOfAyahs} Ayahs" } ?: "JSON API Reader"
+                                    surahDataState?.info?.let { "${it.name} • ${it.numberOfAyahs} Ayahs" } ?: "JSON API Reader"
                                 },
                                 fontSize = 11.sp,
                                 color = SlateMuted
@@ -577,7 +583,7 @@ fun QuranReaderScreen(
                                             color = PlatinumGold, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                                         Text(juz?.nameArabic.orEmpty(), color = PureWhite, fontSize = 22.sp,
                                             modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.End)
-                                        Text("${juz?.startSurahName} ${juz?.startVerse} â€” ${juz?.endSurahName} ${juz?.endVerse} â€¢ ${juz?.totalVersesInJuz} Ayahs",
+                                        Text("${juz?.startSurahName} ${juz?.startVerse} — ${juz?.endSurahName} ${juz?.endVerse} • ${juz?.totalVersesInJuz} Ayahs",
                                             color = PureWhite, fontSize = 12.sp)
                                     }
                                 }
@@ -620,17 +626,38 @@ fun QuranReaderScreen(
                                         surahInfo = info,
                                         isPlaying = isAudioPlaying && activeAudioSurahId == ayah.surahNumber &&
                                             activeAudioAyahNumber == ayah.numberInSurah,
+                                        isBookmarked = (ayah.surahNumber to ayah.numberInSurah) in bookmarkedAyahs,
                                         arabicFontSize = arabicFontSize,
                                         translationFontSize = translationFontSize,
                                         showTranslation = showTranslation,
                                         showUrduTranslation = showUrduTranslation,
                                         onPlayClick = { playAyahAudio(ayah) },
                                         onCopyClick = { copyAyah(ayah, info) },
-                                        onShareClick = { shareAyah(ayah, info) }
+                                        onShareClick = { shareAyah(ayah, info) },
+                                        onBookmarkClick = {
+                                            scope.launch {
+                                                quranRepository.toggleBookmark(
+                                                    surahId = ayah.surahNumber,
+                                                    verseNumber = ayah.numberInSurah,
+                                                    surahNameEnglish = info.englishName,
+                                                    surahNameArabic = info.name,
+                                                    textArabic = ayah.arabicText,
+                                                    textEnglish = ayah.englishTranslation,
+                                                    textUrdu = ayah.urduTranslation
+                                                )
+                                            }
+                                        }
                                     )
                                 }
                             }
                             item {
+                                Text(
+                                    text = "Para $currentJuzNumber of 30",
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                    color = SlateMuted,
+                                    textAlign = TextAlign.Center,
+                                    fontSize = 12.sp
+                                )
                                 SurahFooterNavigation(
                                     currentSurahNumber = currentJuzNumber,
                                     onPreviousSurah = { currentJuzNumber = (currentJuzNumber - 1).coerceAtLeast(1) },
@@ -679,13 +706,27 @@ fun QuranReaderScreen(
                                 ayah = ayah,
                                 surahInfo = currentData.info,
                                 isPlaying = isActivelyPlaying,
+                                isBookmarked = (currentData.info.number to ayah.numberInSurah) in bookmarkedAyahs,
                                 arabicFontSize = arabicFontSize,
                                 translationFontSize = translationFontSize,
                                 showTranslation = showTranslation,
                                 showUrduTranslation = showUrduTranslation,
                                 onPlayClick = { playAyahAudio(ayah) },
                                 onCopyClick = { copyAyah(ayah, currentData.info) },
-                                onShareClick = { shareAyah(ayah, currentData.info) }
+                                onShareClick = { shareAyah(ayah, currentData.info) },
+                                onBookmarkClick = {
+                                    scope.launch {
+                                        quranRepository.toggleBookmark(
+                                            surahId = currentData.info.number,
+                                            verseNumber = ayah.numberInSurah,
+                                            surahNameEnglish = currentData.info.englishName,
+                                            surahNameArabic = currentData.info.name,
+                                            textArabic = ayah.arabicText,
+                                            textEnglish = ayah.englishTranslation,
+                                            textUrdu = ayah.urduTranslation
+                                        )
+                                    }
+                                }
                             )
                         }
 
@@ -772,7 +813,7 @@ fun QuranReaderScreen(
                     .padding(horizontal = 18.dp, vertical = 8.dp)
             ) {
                 Text(
-                    text = "Select Surah (Ø§Ø®Ù’ØªÙŽØ±Ù’ Ø§Ù„Ø³Ù‘ÙÙˆØ±ÙŽØ©)",
+                    text = "Select Surah (اخْتَرِ السُّورَة)",
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = DeepRoyalEmerald
@@ -871,7 +912,7 @@ fun QuranReaderScreen(
                                         color = DeepRoyalEmerald
                                     )
                                     Text(
-                                        text = "${surah.englishNameTranslation} â€¢ ${surah.numberOfAyahs} Verses",
+                                        text = "${surah.englishNameTranslation} • ${surah.numberOfAyahs} Verses",
                                         fontSize = 11.sp,
                                         color = SlateMuted
                                     )
@@ -907,7 +948,7 @@ fun QuranReaderScreen(
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
         ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp)) {
-                Text("Select Para / Juz (Û³Û° Ø³Ù¾Ø§Ø±Û’)", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = DeepRoyalEmerald)
+                Text("Select Para / Juz (۳۰ سپارے)", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = DeepRoyalEmerald)
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().height(440.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -929,8 +970,8 @@ fun QuranReaderScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text("Para ${juz.id} â€¢ ${juz.nameEnglish}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = DeepRoyalEmerald)
-                                Text("${juz.startSurahName} ${juz.startVerse} â€” ${juz.endSurahName} ${juz.endVerse}", fontSize = 11.sp, color = SlateMuted)
+                                Text("Para ${juz.id} • ${juz.nameEnglish}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = DeepRoyalEmerald)
+                                Text("${juz.startSurahName} ${juz.startVerse} — ${juz.endSurahName} ${juz.endVerse}", fontSize = 11.sp, color = SlateMuted)
                             }
                             Text(juz.nameArabic, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = CharcoalPrimary)
                         }
@@ -1016,7 +1057,7 @@ fun QuranReaderScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Show Urdu Translation (Ø§Ø±Ø¯Ùˆ)", fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                        Text("Show Urdu Translation (اردو)", fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
                         Switch(
                             checked = showUrduTranslation,
                             onCheckedChange = { showUrduTranslation = it },
@@ -1202,7 +1243,7 @@ fun BismillahOrnamentalBanner() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Ø¨ÙØ³Ù’Ù…Ù Ù±Ù„Ù„Ù‘ÙŽÙ‡Ù Ù±Ù„Ø±Ù‘ÙŽØ­Ù’Ù…ÙŽÙ°Ù†Ù Ù±Ù„Ø±Ù‘ÙŽØ­ÙÙŠÙ…Ù",
+                text = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
                 fontSize = 22.sp,
                 fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.Bold,
@@ -1212,7 +1253,7 @@ fun BismillahOrnamentalBanner() {
             Spacer(modifier = Modifier.height(4.dp))
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 Text(
-                    text = "Ø´Ø±ÙˆØ¹ Ø§Ù„Ù„Û Ú©Ø§ Ù†Ø§Ù… Ù„Û’ Ú©Ø± Ø¬Ùˆ Ø¨Ú‘Ø§ Ù…ÛØ±Ø¨Ø§Ù† Ù†ÛØ§ÛŒØª Ø±Ø­Ù… ÙˆØ§Ù„Ø§ ÛÛ’",
+                    text = "شروع اللہ کے نام سے جو بڑا مہربان نہایت رحم والا ہے",
                     fontSize = 13.sp,
                     color = SlateMuted,
                     textAlign = TextAlign.Right
@@ -1236,13 +1277,15 @@ fun AyahCardItem(
     ayah: AyahData,
     surahInfo: SurahInfo,
     isPlaying: Boolean,
+    isBookmarked: Boolean = false,
     arabicFontSize: Float,
     translationFontSize: Float,
     showTranslation: Boolean,
     showUrduTranslation: Boolean = true,
     onPlayClick: () -> Unit,
     onCopyClick: () -> Unit,
-    onShareClick: () -> Unit
+    onShareClick: () -> Unit,
+    onBookmarkClick: () -> Unit = {}
 ) {
     val cardBgColor by animateColorAsState(
         targetValue = if (isPlaying) RadiantEmerald.copy(alpha = 0.12f) else PureWhite,
@@ -1278,7 +1321,7 @@ fun AyahCardItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Verse Badge (e.g. Û 1:1)
+                // Verse badge and quick actions.
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
@@ -1352,6 +1395,18 @@ fun AyahCardItem(
                             modifier = Modifier.size(16.dp)
                         )
                     }
+
+                    IconButton(
+                        onClick = onBookmarkClick,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = if (isBookmarked) "Remove bookmark" else "Bookmark Ayah",
+                            tint = if (isBookmarked) DeepRoyalEmerald else SlateMuted,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
                 }
             }
 
@@ -1360,7 +1415,7 @@ fun AyahCardItem(
             // Arabic Text with Authentic Uthmani Calligraphy Formatting
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 Text(
-                    text = "${ayah.arabicText} ï´¿${ayah.numberInSurah}ï´¾",
+                    text = "${ayah.arabicText} ﴿${ayah.numberInSurah}﴾",
                     fontSize = arabicFontSize.sp,
                     fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold,
@@ -1473,4 +1528,3 @@ fun SurahFooterNavigation(
         }
     }
 }
-

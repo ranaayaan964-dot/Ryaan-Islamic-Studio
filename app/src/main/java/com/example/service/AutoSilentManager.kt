@@ -113,8 +113,8 @@ object AutoSilentManager {
             }
         }
 
-        val validLat = userLat?.takeIf { it.isFinite() }
-        val validLng = userLng?.takeIf { it.isFinite() }
+        val validLat = userLat?.takeIf { it.isFinite() && it in -90.0..90.0 }
+        val validLng = userLng?.takeIf { it.isFinite() && it in -180.0..180.0 }
         val hasValidGps = validLat != null && validLng != null
         val distanceToMosque = if (validLat != null && validLng != null) {
             calculateDistanceMeters(validLat, validLng, CENTRAL_MOSQUE_LAT, CENTRAL_MOSQUE_LNG)

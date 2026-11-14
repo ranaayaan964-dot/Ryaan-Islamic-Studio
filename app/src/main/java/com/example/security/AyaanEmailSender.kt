@@ -7,6 +7,7 @@ import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 import javax.net.ssl.SSLSocketFactory
@@ -23,8 +24,10 @@ object AyaanEmailSender {
             require(password.isNotBlank()) { "Gmail app password is not configured." }
             require(email.contains("@") && otpCode.matches(Regex("\\d{6}"))) { "Invalid email or verification code." }
 
-            val socket = SSLSocketFactory.getDefault().createSocket("smtp.gmail.com", 465)
+            val socket = SSLSocketFactory.getDefault().createSocket()
             socket.use {
+                socket.connect(InetSocketAddress("smtp.gmail.com", 465), 20_000)
+                socket.soTimeout = 20_000
                 val reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
                 val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))
                 fun readResponse(): String {
@@ -35,23 +38,23 @@ object AyaanEmailSender {
                     } while (line.length >= 4 && line[3] == '-')
                     return lines.joinToString("\n")
                 }
-                fun command(value: String) {
+                fun command(value: String, expectedCodes: Set<String>) {
                     writer.write(value + "\r\n")
                     writer.flush()
                     val response = readResponse()
-                    if (!response.startsWith("220") && !response.startsWith("250") && !response.startsWith("235") && !response.startsWith("334") && !response.startsWith("354")) {
-                        throw IllegalStateException("SMTP command failed: $response")
+                    if (response.take(3) !in expectedCodes) {
+                        throw IllegalStateException("SMTP command failed with response ${response.take(3)}.")
                     }
                 }
 
                 readResponse().also { if (!it.startsWith("220")) throw IllegalStateException("SMTP connection failed: $it") }
-                command("EHLO ayaan-islamic-studio")
-                command("AUTH LOGIN")
-                command(Base64.getEncoder().encodeToString(sender.toByteArray(StandardCharsets.UTF_8)))
-                command(Base64.getEncoder().encodeToString(password.toByteArray(StandardCharsets.UTF_8)))
-                command("MAIL FROM:<$sender>")
-                command("RCPT TO:<$email>")
-                command("DATA")
+                command("EHLO ayaan-islamic-studio", setOf("250"))
+                command("AUTH LOGIN", setOf("334"))
+                command(Base64.getEncoder().encodeToString(sender.toByteArray(StandardCharsets.UTF_8)), setOf("334"))
+                command(Base64.getEncoder().encodeToString(password.toByteArray(StandardCharsets.UTF_8)), setOf("235"))
+                command("MAIL FROM:<$sender>", setOf("250"))
+                command("RCPT TO:<$email>", setOf("250", "251"))
+                command("DATA", setOf("354"))
 
                 val body = buildString {
                     append("From: Ayaan Islamic Studio <$sender>\r\n")

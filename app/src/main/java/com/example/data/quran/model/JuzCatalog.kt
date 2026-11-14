@@ -19,7 +19,7 @@ object JuzCatalog {
     val allJuz: List<JuzInfo> = listOf(
         JuzInfo(
             id = 1,
-            nameArabic = "الم",
+            nameArabic = "آلم",
             nameEnglish = "Alif Lam Meem",
             nameTranslation = "Alif Lam Meem",
             startSurahId = 1,

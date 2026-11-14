@@ -2,10 +2,40 @@ package com.example
 
 import com.example.data.repository.AladhanRepository
 import com.example.data.repository.PrayerApiProvider
+import com.example.data.quran.api.QuranJsonApi
+import com.example.data.quran.model.JuzCatalog
+import com.example.data.quran.seed.QuranSeedData
 import org.junit.Assert.*
 import org.junit.Test
 
 class ExampleUnitTest {
+  @Test
+  fun `quran catalogs contain all Arabic surah and juz names`() {
+    val apiSurahs = QuranJsonApi.ALL_114_SURAHS
+    val seededSurahs = QuranSeedData.getSurahList()
+    val juz = JuzCatalog.allJuz
+
+    assertEquals(114, apiSurahs.size)
+    assertEquals(114, seededSurahs.size)
+    assertEquals(30, juz.size)
+    assertTrue(apiSurahs.all { it.name.isNotBlank() })
+    assertTrue(seededSurahs.all { it.nameArabic.isNotBlank() })
+    assertTrue(juz.all { it.nameArabic.isNotBlank() })
+  }
+
+  @Test
+  fun `offline Fatihah seed preserves Arabic and Urdu text`() {
+    val ayahs = QuranSeedData.getInitialAyahs().filter { it.surahId == 1 }.sortedBy { it.verseNumber }
+
+    assertEquals(7, ayahs.size)
+    assertTrue(ayahs.all { it.textArabic.isNotBlank() && it.textUrduTranslation.isNotBlank() })
+    assertEquals("ہم کو سیدھے رستے چلا", ayahs[5].textUrduTranslation)
+    assertEquals(
+      "ان لوگوں کے رستے جن پر تو اپنا فضل وکرم کرتا رہا نہ ان کے جن پر غصے ہوتا رہا اور نہ گمراہوں کے",
+      ayahs[6].textUrduTranslation
+    )
+  }
+
   @Test
   fun `AI provider key pool parses separators removes placeholders and deduplicates`() {
     val keys = com.example.data.remote.DualAiScholarEngine.parseConfiguredKeyPool(
@@ -354,5 +384,4 @@ class ExampleUnitTest {
     assertTrue(ikhlas.ayahs[0].englishTranslation.contains("Say, \"He is Allah"))
   }
 }
-
 

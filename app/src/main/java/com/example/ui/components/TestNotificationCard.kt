@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.alarm.NamazMetadataProvider
 import com.example.alarm.NamazWorkManagerScheduler
+import com.example.alarm.PrayerAlarmScheduler
 import com.example.alarm.PrayerAlarmService
 import com.example.alarm.PrayerMessageStyle
 import com.example.alarm.PrayerNotificationPreferences
@@ -504,9 +505,9 @@ fun TestNotificationCard(
 
                         OutlinedButton(
                             onClick = {
-                                NamazWorkManagerScheduler.scheduleAllNamazFromMetadata(context)
-                                NamazWorkManagerScheduler.schedulePeriodicDailySync(context)
-                                wmStatusMessage = "All 5 metadata namaz alarms re-synced in WorkManager!"
+                                NamazWorkManagerScheduler.cancelScheduledMetadataAlarms(context)
+                                PrayerAlarmScheduler.ensureAllAlarmsScheduled(context)
+                                wmStatusMessage = "Exact prayer alarms rescheduled; duplicate metadata work canceled."
                             },
                             modifier = Modifier
                                 .weight(1f)

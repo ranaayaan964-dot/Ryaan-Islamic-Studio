@@ -13,6 +13,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,9 +26,12 @@ object AdhanSoundPlayer {
     private const val TAG = "AdhanSoundPlayer"
     private var mediaPlayer: MediaPlayer? = null
     private var synthesisJob: Job? = null
+    @Volatile
     private var isPlaying = false
     private var audioManager: AudioManager? = null
     private var originalAlarmVolume: Int? = null
+    @Volatile
+    private var playbackGeneration = 0L
 
     fun isPlayingAlert(): Boolean = isPlaying
 
@@ -74,7 +78,7 @@ object AdhanSoundPlayer {
                         }
                     }
                     setOnPreparedListener { preparedPlayer ->
-                        if (isPlaying) {
+                        if (isPlaying && mediaPlayer === preparedPlayer) {
                             preparedPlayer.start()
                         } else {
                             preparedPlayer.release()
@@ -82,11 +86,14 @@ object AdhanSoundPlayer {
                     }
                     setOnErrorListener { failedPlayer, what, extra ->
                         Log.e(TAG, "System alarm audio failed: what=$what extra=$extra")
-                        if (mediaPlayer === failedPlayer) {
+                        val shouldFallback = mediaPlayer === failedPlayer && isPlaying
+                        if (shouldFallback) {
                             mediaPlayer = null
                         }
                         failedPlayer.release()
-                        playMelodicChime(looping = looping, onComplete = onComplete)
+                        if (shouldFallback) {
+                            playMelodicChime(looping = looping, onComplete = onComplete)
+                        }
                         true
                     }
                 }
@@ -105,7 +112,10 @@ object AdhanSoundPlayer {
     }
 
     private fun playMelodicChime(looping: Boolean = false, onComplete: (() -> Unit)?) {
+        val generation = playbackGeneration
         synthesisJob = CoroutineScope(Dispatchers.Default).launch {
+            var audioTrack: AudioTrack? = null
+            var completed = false
             try {
                 val sampleRate = 44100
                 // Spiritual pentatonic notes: D4, F4, G4, A4, C5 (approx Adhan motif)
@@ -118,7 +128,7 @@ object AdhanSoundPlayer {
                     AudioFormat.ENCODING_PCM_16BIT
                 )
 
-                val audioTrack = AudioTrack.Builder()
+                val activeAudioTrack = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_ALARM)
@@ -135,12 +145,13 @@ object AdhanSoundPlayer {
                     )
                     .setBufferSizeInBytes(minBufferSize * 2)
                     .build()
+                audioTrack = activeAudioTrack
 
-                audioTrack.play()
+                activeAudioTrack.play()
 
                 do {
                     for (freq in frequencies) {
-                        if (!isPlaying) break
+                        if (!isPlaying || playbackGeneration != generation) break
                         val numSamples = (sampleRate * durationSec).toInt()
                         val buffer = ShortArray(numSamples)
 
@@ -156,27 +167,40 @@ object AdhanSoundPlayer {
                             buffer[i] = sample.toShort()
                         }
 
-                        audioTrack.write(buffer, 0, numSamples)
+                        activeAudioTrack.write(buffer, 0, numSamples)
                         delay(50)
                     }
-                    if (looping && isPlaying) {
+                    if (looping && isPlaying && playbackGeneration == generation) {
                         delay(1000)
                     }
-                } while (looping && isPlaying)
-
-                audioTrack.stop()
-                audioTrack.release()
+                } while (looping && isPlaying && playbackGeneration == generation)
+                completed = isPlaying && playbackGeneration == generation
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Chime synthesis error: ${e.message}")
+                completed = true
             } finally {
-                isPlaying = false
-                restoreAlarmVolume()
-                onComplete?.invoke()
+                audioTrack?.let { track ->
+                    try {
+                        if (track.playState == AudioTrack.PLAYSTATE_PLAYING) track.stop()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not stop synthesized chime", e)
+                    } finally {
+                        track.release()
+                    }
+                }
+                if (playbackGeneration == generation) {
+                    isPlaying = false
+                    restoreAlarmVolume()
+                    if (completed) onComplete?.invoke()
+                }
             }
         }
     }
 
     fun stopAdhan() {
+        playbackGeneration++
         isPlaying = false
         synthesisJob?.cancel()
         synthesisJob = null
@@ -203,14 +227,18 @@ object AdhanSoundPlayer {
         val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         audioManager = manager
         try {
-            if (originalAlarmVolume == null) {
-                originalAlarmVolume = manager.getStreamVolume(AudioManager.STREAM_ALARM)
+            val currentVolume = manager.getStreamVolume(AudioManager.STREAM_ALARM)
+            if (currentVolume == 0) {
+                if (originalAlarmVolume == null) originalAlarmVolume = currentVolume
+                val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+                if (maxVolume > 0) {
+                    manager.setStreamVolume(
+                        AudioManager.STREAM_ALARM,
+                        (maxVolume * 0.7f).toInt().coerceIn(1, maxVolume),
+                        0
+                    )
+                }
             }
-            manager.setStreamVolume(
-                AudioManager.STREAM_ALARM,
-                manager.getStreamMaxVolume(AudioManager.STREAM_ALARM),
-                0
-            )
         } catch (e: Exception) {
             Log.w(TAG, "Could not raise alarm stream volume", e)
         }

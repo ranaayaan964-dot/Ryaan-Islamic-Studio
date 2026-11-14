@@ -67,8 +67,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -91,8 +91,9 @@ import androidx.compose.ui.unit.sp
 import com.example.data.database.AppDatabase
 import com.example.data.database.ChatHistoryEntity
 import com.example.data.repository.ProSubscriptionRepository
-import com.example.data.remote.DualAiScholarEngine
+import com.example.data.remote.ChatMessageTurn
 import com.example.data.remote.GeminiChatbotRole
+import com.example.data.remote.GeminiApiClient
 import com.example.data.remote.IslamicVoiceEngine
 import com.example.ui.components.IslamicWatermarkBackground
 import com.example.ui.components.NeumorphicCard
@@ -134,13 +135,11 @@ fun AiCompanionScreen(
     val appDb = remember { AppDatabase.getInstance(context) }
     val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
     val chatHistory by appDb.chatDao().getAllChatHistoryFlow().collectAsStateWithLifecycle(initialValue = emptyList())
-    val messages = remember { mutableStateListOf<ChatMessage>() }
+    val messages = remember { mutableStateListOf<ChatMessageTurn>() }
 
     LaunchedEffect(chatHistory) {
-        if (messages.isEmpty() && chatHistory.isNotEmpty()) {
-            messages.clear()
-            messages.addAll(chatHistory.map { ChatMessage(it.messageText, it.isFromUser) })
-        }
+        messages.clear()
+        messages.addAll(chatHistory.map { ChatMessageTurn(it.messageText, it.isFromUser) })
     }
 
     // Active Chatbot Role State
@@ -153,7 +152,7 @@ fun AiCompanionScreen(
     // Voice Engine for AI Text-To-Speech
     val voiceEngine = remember { IslamicVoiceEngine(context) }
     var isVoiceSpeaking by remember { mutableStateOf(false) }
-    var activeSpeakingMessageId by remember { mutableStateOf<Long?>(null) }
+    var activeSpeakingMessageIndex by remember { mutableStateOf<Int?>(null) }
 
     // Speech-To-Text (Voice input from user)
     var isListeningToSpeech by remember { mutableStateOf(false) }
@@ -203,7 +202,7 @@ fun AiCompanionScreen(
         voiceEngine.onSpeakingStateChanged = { speaking ->
             scope.launch(Dispatchers.Main.immediate) {
                 isVoiceSpeaking = speaking
-                if (!speaking) activeSpeakingMessageId = null
+                if (!speaking) activeSpeakingMessageIndex = null
             }
         }
 
@@ -284,20 +283,40 @@ fun AiCompanionScreen(
         } else {
             selectedRole
         }
+        val recentMessages = messages.toList().takeLast(12)
+        messages.add(ChatMessageTurn(userPrompt, true))
 
-        messages.add(ChatMessage(userPrompt, true))
         thinkingModelName = activeRole.displayModel
         isThinking = true
         voiceEngine.stop()
 
         scope.launch {
             try {
-                val scholarResult = DualAiScholarEngine.askScholar(
-                    context = context,
-                    userQuery = userPrompt,
-                    isFatwaRequest = activeRole == GeminiChatbotRole.COMPLEX_JURIST
-                )
-                messages.add(ChatMessage(scholarResult.answer, false))
+                withContext(Dispatchers.IO) {
+                    appDb.chatDao().insertChat(
+                        ChatHistoryEntity(
+                            messageText = userPrompt,
+                            isFromUser = true,
+                            timestamp = System.currentTimeMillis(),
+                            isFatwa = activeRole == GeminiChatbotRole.COMPLEX_JURIST
+                        )
+                    )
+                }
+                val result = GeminiApiClient.multiTurnChat(recentMessages, userPrompt, activeRole)
+                    .getOrElse { throw it }
+                thinkingModelName = result.modelUsed
+                withContext(Dispatchers.IO) {
+                    appDb.chatDao().insertChat(
+                        ChatHistoryEntity(
+                            messageText = result.reply,
+                            isFromUser = false,
+                            timestamp = System.currentTimeMillis(),
+                            scholarSource = result.modelUsed,
+                            isFatwa = activeRole == GeminiChatbotRole.COMPLEX_JURIST
+                        )
+                    )
+                }
+                messages.add(ChatMessageTurn(result.reply, false))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -497,13 +516,15 @@ fun AiCompanionScreen(
                 items(messages.size) { index ->
                     val chat = messages[index]
                     ChatBubbleItem(
-                        chat = chat,
-                        isSpeaking = false,
+                        chat = ChatMessage(chat.text, chat.isFromUser),
+                        isSpeaking = isVoiceSpeaking && activeSpeakingMessageIndex == index,
                         onSpeakToggle = {
-                            if (chat.isUser) return@ChatBubbleItem
-                            if (isVoiceSpeaking) {
+                            if (chat.isFromUser) return@ChatBubbleItem
+                            if (isVoiceSpeaking && activeSpeakingMessageIndex == index) {
                                 voiceEngine.stop()
                             } else {
+                                voiceEngine.stop()
+                                activeSpeakingMessageIndex = index
                                 voiceEngine.speak(chat.text)
                             }
                         },
@@ -718,6 +739,8 @@ fun AiCompanionScreen(
                 TextButton(
                     onClick = {
                         messages.clear()
+                        voiceEngine.stop()
+                        activeSpeakingMessageIndex = null
                         scope.launch(Dispatchers.IO) {
                             appDb.chatDao().clearHistory()
                         }

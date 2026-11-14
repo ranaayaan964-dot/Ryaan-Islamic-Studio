@@ -179,8 +179,8 @@ fun LoginScreen(
             resetMessage = "Enter the 6-digit verification code."
             return
         }
-        if (resetNewPassword.length < 8) {
-            resetMessage = "New password must be at least 8 characters."
+        if (resetNewPassword.length < 6) {
+            resetMessage = "New password must be at least 6 characters."
             return
         }
         isSendingReset = true
@@ -377,7 +377,7 @@ fun LoginScreen(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "RESTRICTED ACCESS â€¢ ADMIN CONSOLE ONLY",
+                    text = "RESTRICTED ACCESS • ADMIN CONSOLE ONLY",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = DeepRoyalEmerald,
@@ -945,4 +945,3 @@ fun LoginScreen(
         }
     }
 }
-

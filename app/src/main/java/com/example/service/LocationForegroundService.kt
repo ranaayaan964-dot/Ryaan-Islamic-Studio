@@ -202,7 +202,13 @@ class LocationForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        fusedLocationClient.removeLocationUpdates(locationCallback)
+        if (::fusedLocationClient.isInitialized && ::locationCallback.isInitialized) {
+            try {
+                fusedLocationClient.removeLocationUpdates(locationCallback)
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Location permission was revoked before updates could be removed", e)
+            }
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 }
