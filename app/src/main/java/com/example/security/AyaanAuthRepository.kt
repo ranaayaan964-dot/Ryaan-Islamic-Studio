@@ -470,7 +470,7 @@ class AyaanAuthRepository(context: Context) {
         pendingMfaPasswordHash = ""
     }
 
-    private fun isAuthorizedAdmin(claims: Map<String, Any>): Boolean = claims["admin"] == true
+    private fun isAuthorizedAdmin(claims: Map<String, Any>, email: String? = auth.currentUser?.email): Boolean = claims["admin"] == true || email?.trim()?.lowercase() in AdminRepository.AUTHORIZED_ADMIN_EMAILS
 
     private suspend fun persistUser(
         uid: String,
@@ -524,3 +524,4 @@ class AyaanAuthRepository(context: Context) {
         private const val ADMIN_PRO_TERM_MILLIS = 365L * 24L * 60L * 60L * 1000L
     }
 }
+

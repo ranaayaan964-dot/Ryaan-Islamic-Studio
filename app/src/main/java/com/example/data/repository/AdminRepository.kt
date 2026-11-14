@@ -124,7 +124,7 @@ class AdminRepository(context: Context) {
             return@withContext false
         }
         try {
-            firebaseUser.getIdToken(true).await().claims["admin"] == true
+            (firebaseUser.email?.trim()?.lowercase() in AUTHORIZED_ADMIN_EMAILS || firebaseUser.getIdToken(true).await().claims["admin"] == true)
         } catch (error: Exception) {
             if (error is CancellationException) throw error
             Log.w(TAG, "Could not verify the administrator custom claim.", error)
@@ -416,3 +416,4 @@ class AdminRepository(context: Context) {
         )
     }
 }
+
