@@ -75,9 +75,18 @@ object AiProxyClient {
         require(audioFile.isFile && audioFile.length() in 1..MAX_AUDIO_SIZE_BYTES) {
             "Audio file is missing, empty, or larger than the secure transcription limit."
         }
+        val safeExtension = when (mimeType) {
+            "audio/wav" -> "wav"
+            "audio/webm" -> "webm"
+            "audio/mpeg" -> "mp3"
+            "audio/mp4" -> "mp4"
+            else -> "m4a"
+        }
         val payload = JSONObject()
-            .put("data", Base64.encodeToString(audioFile.readBytes(), Base64.NO_WRAP))
+            .put("audioBase64", Base64.encodeToString(audioFile.readBytes(), Base64.NO_WRAP))
             .put("mimeType", mimeType)
+            .put("fileName", "recitation.$safeExtension")
+            .put("language", "ar")
         val result = request("transcribe", "groq", "whisper-large-v3", payload)
         return result.optString("text").trim().takeIf(String::isNotBlank)
             ?: error("Speech transcription returned an empty result.")
@@ -101,4 +110,5 @@ object AiProxyClient {
     private const val MAX_AUDIO_SIZE_BYTES = 3 * 1024 * 1024L
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 }
+
 
