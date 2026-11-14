@@ -13,6 +13,7 @@ plugins {
 val localSecretProperties = Properties().apply {
   rootProject.file(".env").takeIf { it.isFile }?.inputStream()?.use { load(it) }
 }
+
 val exampleSecretProperties = Properties().apply {
   rootProject.file(".env.example").takeIf { it.isFile }?.inputStream()?.use { load(it) }
 }
@@ -27,11 +28,16 @@ fun resolveSecret(name: String): String =
 fun String.toBuildConfigStringLiteral(): String =
   "\"${replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n").replace("$", "\\$")}\""
 
+val geminiApiKey = resolveSecret("GEMINI_API_KEY")
+val groqApiKey = resolveSecret("GROQ_API_KEY")
+val groqApiKey2 = resolveSecret("GROQ_API_KEY2")
 val gmailSenderEmail = resolveSecret("GMAIL_SENDER_EMAIL").ifBlank { "ayianrana20133@gmail.com" }
+val gmailAppPassword = resolveSecret("GMAIL_16_DIGIT_APP_PASSWORD")
 val proSupportEmail = resolveSecret("PRO_SUPPORT_EMAIL").ifBlank { "ranasalar964@gmail.com" }
 val unityGameId = resolveSecret("UNITY_GAME_ID").ifBlank { "800424750" }
 val aiProxyBaseUrl = resolveSecret("AI_PROXY_BASE_URL")
   .ifBlank { "https://us-central1-ryaan-islamic-studio.cloudfunctions.net/aiScholarProxy" }
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -44,11 +50,14 @@ android {
     versionName = "1.1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-    buildConfigField("String", "AI_PROXY_BASE_URL", aiProxyBaseUrl.toBuildConfigStringLiteral())
+    buildConfigField("String", "GEMINI_API_KEY", geminiApiKey.toBuildConfigStringLiteral())
+    buildConfigField("String", "GROQ_API_KEY", groqApiKey.toBuildConfigStringLiteral())
+    buildConfigField("String", "GROQ_API_KEY2", groqApiKey2.toBuildConfigStringLiteral())
     buildConfigField("String", "GMAIL_SENDER_EMAIL", gmailSenderEmail.toBuildConfigStringLiteral())
+    buildConfigField("String", "GMAIL_16_DIGIT_APP_PASSWORD", gmailAppPassword.toBuildConfigStringLiteral())
     buildConfigField("String", "PRO_SUPPORT_EMAIL", proSupportEmail.toBuildConfigStringLiteral())
     buildConfigField("String", "UNITY_GAME_ID", unityGameId.toBuildConfigStringLiteral())
+    buildConfigField("String", "AI_PROXY_BASE_URL", aiProxyBaseUrl.toBuildConfigStringLiteral())
   }
 
   signingConfigs {
@@ -75,16 +84,23 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { if (file("${rootDir}/debug.keystore").isFile) { signingConfig = signingConfigs.getByName("debugConfig") } }
+    debug {
+      if (file("${rootDir}/debug.keystore").isFile) {
+        signingConfig = signingConfigs.getByName("debugConfig")
+      }
+    }
   }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
   }
+
   buildFeatures {
     compose = true
     buildConfig = true
   }
+
   testOptions { unitTests { isIncludeAndroidResources = true } }
   dependenciesInfo {
     includeInApk = false
@@ -96,8 +112,6 @@ ksp {
   arg("room.schemaLocation", "$projectDir/schemas")
 }
 
-// Configure the Secrets Gradle Plugin to use .env and .env.example files
-// to match the convention used in Web projects.
 secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
@@ -113,8 +127,6 @@ secrets {
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
-// Some unused dependencies are commented out below instead of being removed.
-// This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
@@ -152,8 +164,6 @@ dependencies {
   implementation(libs.firebase.firestore)
   implementation(libs.mlkit.barcode.scanning)
   implementation(libs.play.services.maps)
-
-  // Firebase Auth supports the password reset flow on the login screen.
   implementation(libs.firebase.auth)
   implementation(libs.androidx.credentials)
   implementation(libs.androidx.credentials.play.services)

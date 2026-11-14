@@ -1,17 +1,18 @@
 ﻿package com.example.data.remote
 
-import android.util.Base64
 import com.example.BuildConfig
-import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 object AiProxyClient {
@@ -22,14 +23,15 @@ object AiProxyClient {
         .callTimeout(120, TimeUnit.SECONDS)
         .build()
 
-    suspend fun generate(
-        provider: String,
-        model: String,
-        payload: JSONObject
-    ): JSONObject = request("generate", provider, model, payload)
+    private fun geminiKeys(): List<String> =
+        DualAiScholarEngine.parseConfiguredKeyPool(BuildConfig.GEMINI_API_KEY)
 
-    private suspend fun request(
-        action: String,
+    private fun groqKeys(): List<String> =
+        DualAiScholarEngine.parseConfiguredKeyPool(
+            listOf(BuildConfig.GROQ_API_KEY, BuildConfig.GROQ_API_KEY2).joinToString(",")
+        )
+
+    suspend fun generate(
         provider: String,
         model: String,
         payload: JSONObject
@@ -37,44 +39,148 @@ object AiProxyClient {
         require(provider in SUPPORTED_PROVIDERS) { "Unsupported AI provider." }
         require(model in SUPPORTED_MODELS) { "Unsupported AI model." }
 
-        val endpoint = BuildConfig.AI_PROXY_BASE_URL.trim()
-            .takeIf(String::isNotBlank)
-            ?: error("Secure AI service is not configured.")
-        val token = FirebaseAuth.getInstance().currentUser
-            ?.getIdToken(false)
-            ?.await()
-            ?.token
-            ?.takeIf(String::isNotBlank)
-            ?: error("Sign in to use the AI service.")
-        val requestBody = JSONObject()
-            .put("action", action)
-            .put("provider", provider)
-            .put("model", model)
-            .put("payload", payload)
-            .toString()
-            .toRequestBody(JSON_MEDIA_TYPE)
-        val request = Request.Builder()
-            .url(endpoint)
-            .header("Authorization", "Bearer $token")
-            .post(requestBody)
-            .build()
-
-        httpClient.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            check(response.isSuccessful) {
-                val message = runCatching {
-                    JSONObject(body).optString("error").ifBlank { JSONObject(body).optString("message") }
-                }.getOrDefault("")
-                "AI service request failed (${response.code})${message.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()}"
-            }
-            JSONObject(body)
+        if (provider == "gemini") {
+            generateWithGeminiOrGroqFallback(model, payload)
+        } else {
+            generateWithGroqDirect(model, payload)
         }
     }
 
-    suspend fun transcribeGroqAudio(audioFile: File, mimeType: String): String {
+    private fun generateWithGeminiOrGroqFallback(model: String, payload: JSONObject): JSONObject {
+        val gKeys = geminiKeys()
+        val candidateModels = listOf(
+            when (model) {
+                "gemini-3.5-flash", "gemini-3.1-flash-lite-preview" -> "gemini-2.5-flash"
+                "gemini-3.1-pro-preview" -> "gemini-2.5-flash"
+                else -> model
+            },
+            "gemini-2.5-flash",
+            "gemini-2.0-flash"
+        ).distinct()
+
+        for (apiKey in gKeys) {
+            for (targetModel in candidateModels) {
+                val encodedModel = URLEncoder.encode(targetModel, "UTF-8")
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$encodedModel:generateContent"
+                val req = Request.Builder()
+                    .url(url)
+                    .header("x-goog-api-key", apiKey)
+                    .header("Content-Type", "application/json")
+                    .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                    .build()
+
+                runCatching {
+                    httpClient.newCall(req).execute().use { response ->
+                        val body = response.body?.string().orEmpty()
+                        if (response.isSuccessful && body.isNotBlank()) {
+                            return JSONObject(body)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Automatic fallback to Groq (using GROQ_API_KEY / GROQ_API_KEY2 from GitHub Secrets)
+        val groqMessages = convertGeminiPayloadToGroqMessages(payload)
+        val groqPayload = JSONObject()
+            .put("model", "llama-3.3-70b-versatile")
+            .put("messages", groqMessages)
+            .put("temperature", 0.3)
+            .put("max_tokens", 1500)
+
+        val groqResponse = generateWithGroqDirect("llama-3.3-70b-versatile", groqPayload)
+        val replyText = groqResponse.optJSONArray("choices")
+            ?.optJSONObject(0)
+            ?.optJSONObject("message")
+            ?.optString("content")
+            ?.trim()
+            .orEmpty()
+
+        check(replyText.isNotBlank()) { "AI service returned an empty response." }
+
+        return JSONObject().put(
+            "candidates",
+            JSONArray().put(
+                JSONObject().put(
+                    "content",
+                    JSONObject().put(
+                        "parts",
+                        JSONArray().put(JSONObject().put("text", replyText))
+                    )
+                )
+            )
+        )
+    }
+
+    private fun convertGeminiPayloadToGroqMessages(payload: JSONObject): JSONArray {
+        val messages = JSONArray()
+        val sysParts = payload.optJSONObject("systemInstruction")?.optJSONArray("parts")
+        if (sysParts != null && sysParts.length() > 0) {
+            val sysText = (0 until sysParts.length())
+                .mapNotNull { sysParts.optJSONObject(it)?.optString("text") }
+                .joinToString("\n")
+                .trim()
+            if (sysText.isNotBlank()) {
+                messages.put(JSONObject().put("role", "system").put("content", sysText))
+            }
+        }
+
+        val contents = payload.optJSONArray("contents") ?: JSONArray()
+        for (i in 0 until contents.length()) {
+            val turn = contents.optJSONObject(i) ?: continue
+            val role = if (turn.optString("role") == "model") "assistant" else "user"
+            val parts = turn.optJSONArray("parts") ?: continue
+            val textBuilder = StringBuilder()
+            for (j in 0 until parts.length()) {
+                val p = parts.optJSONObject(j) ?: continue
+                val t = p.optString("text")
+                if (t.isNotBlank()) {
+                    if (textBuilder.isNotEmpty()) textBuilder.append("\n")
+                    textBuilder.append(t)
+                }
+            }
+            if (textBuilder.isNotEmpty()) {
+                messages.put(JSONObject().put("role", role).put("content", textBuilder.toString()))
+            }
+        }
+        return messages
+    }
+
+    private fun generateWithGroqDirect(model: String, payload: JSONObject): JSONObject {
+        val keys = groqKeys()
+        require(keys.isNotEmpty()) { "GROQ_API_KEY is not configured in BuildConfig / GitHub Secrets." }
+
+        var lastError = "Groq request failed"
+        for (apiKey in keys) {
+            val req = Request.Builder()
+                .url("https://api.groq.com/openai/v1/chat/completions")
+                .header("Authorization", "Bearer $apiKey")
+                .header("Content-Type", "application/json")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            try {
+                httpClient.newCall(req).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    if (response.isSuccessful && body.isNotBlank()) {
+                        return JSONObject(body)
+                    }
+                    lastError = "HTTP ${response.code}: $body"
+                }
+            } catch (e: Exception) {
+                lastError = e.localizedMessage ?: "Network error"
+            }
+        }
+        error("AI service request failed: $lastError")
+    }
+
+    suspend fun transcribeGroqAudio(audioFile: File, mimeType: String): String = withContext(Dispatchers.IO) {
         require(audioFile.isFile && audioFile.length() in 1..MAX_AUDIO_SIZE_BYTES) {
             "Audio file is missing, empty, or larger than the secure transcription limit."
         }
+        val keys = groqKeys()
+        require(keys.isNotEmpty()) { "GROQ_API_KEY is not configured in BuildConfig / GitHub Secrets." }
+
         val safeExtension = when (mimeType) {
             "audio/wav" -> "wav"
             "audio/webm" -> "webm"
@@ -82,18 +188,46 @@ object AiProxyClient {
             "audio/mp4" -> "mp4"
             else -> "m4a"
         }
-        val payload = JSONObject()
-            .put("audioBase64", Base64.encodeToString(audioFile.readBytes(), Base64.NO_WRAP))
-            .put("mimeType", mimeType)
-            .put("fileName", "recitation.$safeExtension")
-            .put("language", "ar")
-        val result = request("transcribe", "groq", "whisper-large-v3", payload)
-        return result.optString("text").trim().takeIf(String::isNotBlank)
-            ?: error("Speech transcription returned an empty result.")
+
+        var lastError = "Transcription failed"
+        for (apiKey in keys) {
+            val multipartBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("model", "whisper-large-v3")
+                .addFormDataPart("language", "ar")
+                .addFormDataPart("response_format", "json")
+                .addFormDataPart(
+                    "file",
+                    "recitation.$safeExtension",
+                    audioFile.asRequestBody(mimeType.toMediaType())
+                )
+                .build()
+
+            val request = Request.Builder()
+                .url("https://api.groq.com/openai/v1/audio/transcriptions")
+                .header("Authorization", "Bearer $apiKey")
+                .post(multipartBody)
+                .build()
+
+            try {
+                httpClient.newCall(request).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    if (response.isSuccessful && body.isNotBlank()) {
+                        val text = JSONObject(body).optString("text").trim()
+                        if (text.isNotBlank()) return@withContext text
+                    }
+                    lastError = "HTTP ${response.code}: $body"
+                }
+            } catch (e: Exception) {
+                lastError = e.localizedMessage ?: "Network error"
+            }
+        }
+        error("Speech transcription failed: $lastError")
     }
 
     private val SUPPORTED_PROVIDERS = setOf("gemini", "groq")
     private val SUPPORTED_MODELS = setOf(
+        "gemini-1.5-flash",
         "gemini-2.5-flash",
         "gemini-3.1-pro-preview",
         "gemini-3.5-flash",
@@ -106,9 +240,6 @@ object AiProxyClient {
         "gemma2-9b-it",
         "whisper-large-v3"
     )
-
     private const val MAX_AUDIO_SIZE_BYTES = 3 * 1024 * 1024L
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 }
-
-
