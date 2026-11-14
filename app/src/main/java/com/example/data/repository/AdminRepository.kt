@@ -1,6 +1,7 @@
 ﻿package com.example.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.example.data.database.AdminMessageEntity
 import com.example.data.database.AppDatabase
 import com.example.data.database.UserEntity
@@ -9,6 +10,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -46,7 +48,7 @@ class AdminRepository(context: Context) {
         fun emitMessages(localMessages: List<AdminMessageEntity>) {
             val remoteMessages = synchronized(lock) { broadcasts + directMessages }
             val visible = (localMessages.filter {
-                it.targetAll || uid.isBlank() || uid in it.targetUsersCsv.split(',')
+                it.targetAll || (uid.isNotBlank() && uid in it.targetUsersCsv.split(','))
             } + remoteMessages)
                 .distinctBy { it.id }
                 .sortedByDescending { it.timestamp }
@@ -116,19 +118,18 @@ class AdminRepository(context: Context) {
     }
 
     suspend fun isAdminSession(): Boolean = withContext(Dispatchers.IO) {
-        val localUser = userDao.getActiveSession() ?: userDao.getCurrentUser()
-        if (localUser != null && localUser.isLoggedIn && !localUser.isRemoved) {
-            if (localUser.role.equals("ADMIN", ignoreCase = true) ||
-                localUser.email.trim().lowercase() in AUTHORIZED_ADMIN_EMAILS ||
-                localUser.username.equals("ayaan", ignoreCase = true)
-            ) {
-                return@withContext true
-            }
+        val firebaseUser = auth.currentUser ?: return@withContext false
+        val localUser = userDao.getActiveSession() ?: return@withContext false
+        if (!localUser.isLoggedIn || localUser.isRemoved || localUser.firebaseUid != firebaseUser.uid) {
+            return@withContext false
         }
-        val fbUser = auth.currentUser ?: return@withContext false
-        val email = fbUser.email?.trim()?.lowercase()
-        val claims = runCatching { fbUser.getIdToken(false).await().claims }.getOrDefault(emptyMap())
-        email in AUTHORIZED_ADMIN_EMAILS || claims["admin"] == true
+        try {
+            firebaseUser.getIdToken(true).await().claims["admin"] == true
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            Log.w(TAG, "Could not verify the administrator custom claim.", error)
+            false
+        }
     }
 
     suspend fun syncUsersFromFirestore() = withContext(Dispatchers.IO) {
@@ -154,7 +155,7 @@ class AdminRepository(context: Context) {
                         sessionToken = existing?.sessionToken,
                         isLoggedIn = existing?.isLoggedIn ?: false,
                         loginTimestamp = document.getLong("lastLoginAt") ?: 0L,
-                        role = if (docEmail.lowercase() in AUTHORIZED_ADMIN_EMAILS) "ADMIN" else (document.getString("role") ?: "USER"),
+                        role = document.getString("role") ?: "USER",
                         firebaseUid = uid,
                         authProvider = document.getString("authProvider").orEmpty(),
                         createdAt = document.getLong("createdAt") ?: 0L,
@@ -348,11 +349,10 @@ class AdminRepository(context: Context) {
 
     private suspend fun requireAdmin(): String {
         check(isAdminSession()) {
-            "Administrator access requires signing in with ayianrana20133@gmail.com or ranasalar964@gmail.com."
+            "Administrator access requires a Firebase-authenticated account with a verified admin claim."
         }
         return auth.currentUser?.uid
-            ?: userDao.getActiveSession()?.firebaseUid?.takeIf { it.isNotBlank() }
-            ?: "admin_ayaan_uid"
+            ?: error("Administrator authentication expired. Sign in again.")
     }
 
     private suspend fun currentUserUid(): String =

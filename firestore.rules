@@ -1,51 +1,144 @@
-﻿rules_version = '2';
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
       return request.auth != null;
     }
 
-    function activeUser() {
-      return signedIn()
-        && (!exists(/databases/$(database)/documents/users/$(request.auth.uid))
-          || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isRemoved', false) == false);
-    }
-
     function isAdmin() {
       return signedIn()
+        && request.auth.token.get('admin', false) == true;
+    }
+
+    function canCreateUserProfile(userId) {
+      return signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'fullName',
+          'username',
+          'email',
+          'authProvider',
+          'createdAt',
+          'lastLoginAt',
+          'activitySummary',
+          'role',
+          'isRemoved'
+        ])
+        && request.resource.data.get('role', 'USER') == 'USER'
+        && request.resource.data.get('isRemoved', false) == false;
+    }
+
+    function isProRedemptionUpdate(userId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let keyPath = /databases/$(database)/documents/pro_license_keys/$(request.resource.data.activatedProKey);
+      return signedIn()
+        && request.auth.uid == userId
+        && resource.data.get('isRemoved', false) == false
+        && changed.hasOnly(['subscriptionPlan', 'proExpiresAt', 'activatedProKey'])
+        && changed.hasAll(['subscriptionPlan', 'proExpiresAt', 'activatedProKey'])
+        && request.resource.data.activatedProKey is string
+        && request.resource.data.activatedProKey.size() > 0
+        && existsAfter(keyPath)
+        && getAfter(keyPath).data.isUsed == true
+        && getAfter(keyPath).data.usedByUid == userId
+        && getAfter(keyPath).data.usedByEmail == request.auth.token.email
+        && getAfter(keyPath).data.planTier == request.resource.data.subscriptionPlan
+        && getAfter(keyPath).data.expiresAt == request.resource.data.proExpiresAt;
+    }
+
+    function canUpdateUserProfile(userId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return signedIn()
+        && request.auth.uid == userId
+        && resource.data.get('isRemoved', false) == false
         && (
-          (('admin' in request.auth.token) && request.auth.token.admin == true)
-          || request.auth.token.email in [
-            'ayianrana20133@gmail.com',
-            'ranasalar964@gmail.com'
-          ]
+          (
+            changed.hasOnly(['fullName', 'username', 'lastLoginAt', 'activitySummary', 'authProvider', 'email'])
+            && (
+              !changed.hasAny(['email'])
+              || (
+                request.resource.data.email == request.auth.token.email
+                && request.auth.token.email_verified == true
+              )
+            )
+          )
+          || isProRedemptionUpdate(userId)
         );
     }
 
+    function canRedeemProKey(keyId) {
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      let userAfter = getAfter(userPath).data;
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return signedIn()
+        && resource.data.isUsed == false
+        && request.resource.data.isUsed == true
+        && changed.hasOnly([
+          'isUsed',
+          'usedByUid',
+          'usedByUsername',
+          'usedByEmail',
+          'activatedAt',
+          'expiresAt'
+        ])
+        && changed.hasAll([
+          'isUsed',
+          'usedByUid',
+          'usedByUsername',
+          'usedByEmail',
+          'activatedAt',
+          'expiresAt'
+        ])
+        && request.resource.data.usedByUid == request.auth.uid
+        && request.resource.data.usedByEmail == request.auth.token.email
+        && resource.data.planTier in ['PRO_WEEKLY', 'PRO_MONTHLY', 'PRO_YEARLY']
+        && resource.data.durationDays in [7, 30, 365]
+        && request.resource.data.activatedAt is int
+        && request.resource.data.expiresAt is int
+        && request.resource.data.activatedAt >= request.time.toMillis() - 300000
+        && request.resource.data.activatedAt <= request.time.toMillis() + 300000
+        && request.resource.data.expiresAt
+          == request.resource.data.activatedAt + resource.data.durationDays * 86400000
+        && userAfter.activatedProKey == keyId
+        && userAfter.subscriptionPlan == request.resource.data.planTier
+        && userAfter.proExpiresAt == request.resource.data.expiresAt;
+    }
+
     match /users/{userId} {
-      allow read: if (signedIn() && request.auth.uid == userId) || isAdmin();
-      allow create, update: if (signedIn() && request.auth.uid == userId) || isAdmin();
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAdmin() || canCreateUserProfile(userId);
+      allow update: if isAdmin() || canUpdateUserProfile(userId);
       allow delete: if isAdmin();
     }
 
-    match /pro_license_keys/{licenseKey} {
-      allow get: if isAdmin() || signedIn();
+    match /pro_license_keys/{keyId} {
+      allow get: if signedIn();
       allow list: if isAdmin();
       allow create, delete: if isAdmin();
-      allow update: if isAdmin()
-        || (signedIn()
-          && resource.data.isUsed == false
-          && request.resource.data.isUsed == true);
+      allow update: if isAdmin() || canRedeemProKey(keyId);
     }
 
-    match /admin_messages/{messageId} {
-      allow read: if isAdmin() || signedIn();
+    match /admin_messages/{msgId} {
+      allow read: if isAdmin()
+        || (signedIn()
+          && (
+            resource.data.targetAll == true
+            || (
+              resource.data.targetUsers is list
+              && request.auth.uid in resource.data.targetUsers
+            )
+          ));
       allow create, update, delete: if isAdmin();
     }
 
     match /user_reports/{reportId} {
-      allow create: if signedIn();
-      allow read: if isAdmin() || (signedIn() && resource.data.reporterUid == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.reporterUid == request.auth.uid;
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.reporterUid == request.auth.uid);
       allow update, delete: if isAdmin();
     }
   }

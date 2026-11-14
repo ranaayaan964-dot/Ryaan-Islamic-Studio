@@ -62,7 +62,7 @@ class ExampleRobolectricTest {
     val user = UserEntity(
       id = 1L,
       username = "ryaan",
-      passwordHash = "11221122",
+      passwordHash = "test-password-hash",
       fullName = "Ryaan Usman",
       email = "ranaayaan964@gmail.com",
       sessionToken = "session_token_123",
@@ -73,7 +73,7 @@ class ExampleRobolectricTest {
     val storedUser = userDao.getCurrentUser()
     assertNotNull(storedUser)
     assertEquals("ryaan", storedUser?.username)
-    assertEquals("11221122", storedUser?.passwordHash)
+    assertEquals("test-password-hash", storedUser?.passwordHash)
     assertTrue(storedUser?.isLoggedIn == true)
 
     val activeSession = userDao.getActiveSession()
@@ -86,7 +86,7 @@ class ExampleRobolectricTest {
     val user = UserEntity(
       id = 1L,
       username = "ryaan",
-      passwordHash = "11221122",
+      passwordHash = "test-password-hash",
       isLoggedIn = true,
       sessionToken = "token_abc"
     )

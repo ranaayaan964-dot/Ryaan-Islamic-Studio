@@ -88,7 +88,7 @@ interface UserDao {
         plan: String,
         expiresAt: Long,
         licenseKey: String
-    )
+    ): Int
 
     @Query("SELECT COALESCE(MAX(id), 0) + 1 FROM users")
     suspend fun getNextUserId(): Long

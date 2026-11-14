@@ -97,7 +97,7 @@ fun AdminDashboardScreen(
             Column(Modifier.weight(1f)) {
                 Text("AYAAN ADMIN COMMAND CENTER", style = MaterialTheme.typography.titleLarge)
                 Text("Admin 2FA Verified")
-                Text("Authorized: ${AdminRepository.AUTHORIZED_ADMIN_EMAILS.joinToString()}")
+                Text("Access is verified by your Firebase administrator claim.")
             }
             TextButton(onClick = onOpenUserApp) { Text("Open User App") }
             TextButton(onClick = {

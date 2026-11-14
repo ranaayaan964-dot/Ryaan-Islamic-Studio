@@ -2,14 +2,14 @@
 
 Yeh guide Roman English mein hai. Is file mein password, PIN, OTP, API key, service-account key, ya `.env` ki koi value nahi hai. Admin password har account owner khud Firebase Console mein set ya reset karega.
 
-## 1. Authorized admin email accounts
+## 1. Designated admin email accounts
 
-App code mein yeh do email addresses admin ke liye listed hain:
+Yeh addresses admin accounts ke liye designated hain, lekin email match khud admin permission nahi deta:
 
 - `ayianrana20133@gmail.com`
 - `ranasalar964@gmail.com`
 
-In emails ka matlab yeh nahi ke inka password code ya repository se mil sakta hai. Har email apne Firebase Authentication user account se linked hona chahiye. Apna account hi use karein; kisi aur ka password ya verification code na maangein.
+Har email ka apna Firebase Authentication account hona chahiye. Admin access sirf us account ke Firebase UID par trusted server se set kiye gaye `admin: true` custom claim se milta hai. Apna account hi use karein; kisi aur ka password ya verification code na maangein.
 
 ## 2. Firebase project ko select karein
 
@@ -35,11 +35,11 @@ Firebase Console mein password dekhne ka option nahi hota. Password reset karna 
 
 ## 4. Admin profile aur custom claim tayyar karna
 
-App mein admin role email address ya Firebase ID token ke `admin: true` custom claim se pehchana jata hai. Production setup mein custom claim ko trusted Admin SDK environment se set karein, aur user profile mein `isRemoved: false` rakhein.
+App admin ko sirf Firebase Authentication ke active session aur refreshed ID token ke `admin: true` custom claim se pehchanta hai. Email, local role, username, ya Firestore profile ka `role` field akelay admin access nahi dete. Admin claim ko trusted Admin SDK environment se set karein; Android client se claim set karna mumkin ya safe nahi hona chahiye.
 
 1. `Authentication` > `Users` mein admin account khol kar uska Firebase UID copy karein. UID email address ya username nahi hota.
 2. Trusted server, Cloud Function, ya apne secured admin workstation par Firebase Admin SDK ka istemal karein. Service-account key ko Android project, GitHub, ya `.env` mein mat rakhein.
-3. Existing claims ko preserve karte hue sirf `admin: true` add karein. Node.js example:
+3. UID aur email dono ko manually verify karke ensure karein ke account authorized admin email se match karta hai. Existing claims preserve karte hue sirf `admin: true` add karein. Yeh code sirf trusted server/admin environment par chalayein:
 
 ```js
 const account = await getAuth().getUser(adminUid);
@@ -51,7 +51,7 @@ await getAuth().setCustomUserClaims(adminUid, {
 
 `adminUid` ko sirf Firebase Console se verify kiye hue account UID se set karein. Yeh code Android client mein nahi chalana.
 
-4. Firestore `users/{uid}` profile verify karein. Kam az kam `uid`, `email`, `username`, `fullName`, `authProvider`, `createdAt`, `lastLoginAt`, `activitySummary`, aur `isRemoved: false` fields consistent hon.
+4. Firestore `users/{uid}` profile verify karein. Kam az kam `uid`, `email`, `username`, `fullName`, `authProvider`, `createdAt`, `lastLoginAt`, `activitySummary`, aur `isRemoved: false` fields consistent hon. Profile ka `role` field admin authority ka source nahi hai.
 5. App se sign out karke dobara login karein, taake refreshed Firebase ID token mein custom claim aa jaye.
 
 Firebase custom claim add karna account ke password ko nahi badalta.
@@ -75,29 +75,27 @@ firebase deploy --only firestore:rules
 3. Apna authorized admin email aur us email ke Firebase Authentication account ka current password enter karein.
 4. `Log In` press karein.
 5. Agar Firebase SMS multi-factor verification ka prompt aaye, enrolled phone par aaya hua current code enter karein. Code kisi ke saath share na karein.
-6. Agar email reset-code dialog aaye, apne inbox par aaya current code enter karein. Code is guide mein store nahi karna.
-7. Login ke baad Terms screen aaye to parh kar `Agree` select karein.
-8. Admin account ko Admin Dashboard par jana chahiye. Agar normal user screen ya plan selection dikhe, sign out karke email spelling, Firebase UID/profile, account removal status, custom claim, aur Firestore rules check karein.
+6. Login ke baad Terms screen aaye to parh kar `Agree` select karein.
+7. Admin account ko Admin Dashboard par jana chahiye. Agar normal user screen ya plan selection dikhe, sign out karke Firebase UID/profile, account removal status, refreshed custom claim, aur Firestore rules check karein. Sirf email match se admin access enable nahi hota.
 
 ## 7. Password bhoolne par
 
 1. Login screen mein `Forgot password?` select karein.
 2. Usi admin Firebase email ko enter karein jiska password reset karna hai.
-3. App/email flow jo reset instructions ya code de, usay privately use karein.
-4. Naya password Firebase Auth aur app ke configured reset flow ke mutabiq set karein.
-5. Agar email/code na aaye, Firebase Authentication user, sender/email service configuration, spam folder, aur app logs check karein. Password ya OTP kisi helper ko bhejne ki zaroorat nahi.
+3. Firebase ke password reset link ko privately open karke naya password set karein.
+4. App mein naye password se sign in karein. Password ya reset link kisi helper ko bhejne ki zaroorat nahi.
+5. Agar email na aaye, Firebase Authentication user, email template/settings, spam folder, aur app logs check karein.
 
-## 8. Zaroori security warning: legacy admin login
+## 8. Zaroori security status
 
-Current Android source mein purana local admin fallback aur embedded test credentials ka logic abhi maujood hai. Yeh secure production authentication nahi hai, aur is guide mein us credential ko repeat nahi kiya jayega. Sirf email list ko dekh kar app ko secure na samjhein.
+Android client mein local PIN/username admin bypass remove kar diya gaya hai. Admin authorization ab Firebase custom claim par depend karta hai. Isliye production admin accounts ko claim assign karne ke liye trusted Admin SDK backend/admin environment configure karna zaroori hai.
 
 Public GitHub, public APK, ya real users ke liye release se pehle maintainer ko:
 
-1. Legacy hard-coded admin username/password/PIN fallback ko source aur tests se remove karna chahiye.
-2. Admin ko sirf Firebase Authentication ke successful sign-in, verified identity, trusted admin claim, aur active Firestore profile se authorize karna chahiye.
-3. Firestore rules mein removed users ko block karna aur admin writes ko admin custom claim tak restrict karna chahiye. Admin email ke naam par client-side bypass ko authorization na banayein.
-4. Email/password accounts ke liye Firebase mein supported MFA enable karein; email OTP ko SMS MFA ka substitute na samjhein.
-5. Agar legacy credential kabhi APK, GitHub commit, ya kisi message mein share hua ho to usay compromised samajh kar remove/rotate karein aur purane sessions/tokens revoke karne ka trusted server-side plan banayein.
+1. Custom claim sirf trusted server/Admin SDK se assign karein aur admin email/UID pairing ko server-side verify karein.
+2. Naye `firestore.rules` deploy karne se pehle Firebase Emulator ya staging project mein profile, Pro redemption, aur message-recipient access tests chalayein.
+3. Email/password accounts ke liye Firebase mein supported MFA enable karein; email reset link ko MFA ka substitute na samjhein.
+4. Gemini/Groq jaise API keys ko Android APK mein confidential na samjhein. Public production ke liye provider calls trusted backend ke peeche rakhein aur keys ko provider console mein restrict/rotate karein.
 
 ## 9. Secrets aur GitHub
 

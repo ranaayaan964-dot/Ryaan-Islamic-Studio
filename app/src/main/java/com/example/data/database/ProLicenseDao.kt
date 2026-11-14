@@ -23,6 +23,9 @@ interface ProLicenseDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertProKeys(proKeys: List<ProLicenseKeyEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertProKey(proKey: ProLicenseKeyEntity)
+
     @Query("UPDATE pro_license_keys SET isUsed = 1, usedByUsername = :username, usedByEmail = :email, usedByUid = :uid, activatedAt = :activatedAt, expiresAt = :expiresAt WHERE UPPER(licenseKey) = UPPER(:key) AND isUsed = 0")
     suspend fun markKeyUsedAtomically(
         key: String,

@@ -115,9 +115,6 @@ fun LoginScreen(
     var showResetDialog by remember { mutableStateOf(false) }
     var resetEmail by remember { mutableStateOf("") }
     var resetMessage by remember { mutableStateOf<String?>(null) }
-    var resetOtp by remember { mutableStateOf("") }
-    var resetNewPassword by remember { mutableStateOf("") }
-    var resetOtpSent by remember { mutableStateOf(false) }
     var isSendingReset by remember { mutableStateOf(false) }
     var showMfaDialog by remember { mutableStateOf(false) }
     var mfaCode by remember { mutableStateOf("") }
@@ -163,39 +160,12 @@ fun LoginScreen(
         isSendingReset = true
         resetMessage = null
         scope.launch {
-            val result = authRepository.sendPasswordResetOtpEmail(email)
+            val result = authRepository.sendPasswordResetEmail(email)
             isSendingReset = false
             if (result.isSuccess) {
-                resetOtpSent = true
-                resetMessage = result.getOrNull()
+                resetMessage = "Firebase password reset link sent. Follow the link in your email to choose a new password."
             } else {
-                resetMessage = "Could not send reset code: ${result.exceptionOrNull()?.localizedMessage ?: "try again later"}"
-            }
-        }
-    }
-
-    fun completePasswordReset() {
-        if (!resetOtp.matches(Regex("\\d{6}"))) {
-            resetMessage = "Enter the 6-digit verification code."
-            return
-        }
-        if (resetNewPassword.length < 6) {
-            resetMessage = "New password must be at least 6 characters."
-            return
-        }
-        isSendingReset = true
-        scope.launch {
-            val result = authRepository.completePasswordReset(resetEmail.trim(), resetOtp, resetNewPassword)
-            isSendingReset = false
-            resetMessage = if (result.isSuccess) {
-                "Password updated securely. You can now log in."
-            } else {
-                result.exceptionOrNull()?.localizedMessage ?: "Password reset could not be completed."
-            }
-            if (result.isSuccess) {
-                resetOtpSent = false
-                resetOtp = ""
-                resetNewPassword = ""
+                resetMessage = "Could not send reset link: ${result.exceptionOrNull()?.localizedMessage ?: "try again later"}"
             }
         }
     }
@@ -769,32 +739,10 @@ fun LoginScreen(
                                         .testTag("password_reset_email_input")
                                 )
                                 Text(
-                                    text = "A Firebase reset link and native Gmail verification code will be used when SMTP is configured.",
+                                    text = "Firebase will email you a secure password reset link.",
                                     fontSize = 12.sp,
                                     color = SlateMuted
                                 )
-                                AnimatedVisibility(visible = resetOtpSent) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        OutlinedTextField(
-                                            value = resetOtp,
-                                            onValueChange = { resetOtp = it.filter(Char::isDigit).take(6); resetMessage = null },
-                                            label = { Text("6-digit verification code") },
-                                            singleLine = true,
-                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        OutlinedTextField(
-                                            value = resetNewPassword,
-                                            onValueChange = { resetNewPassword = it; resetMessage = null },
-                                            label = { Text("New password") },
-                                            singleLine = true,
-                                            visualTransformation = PasswordVisualTransformation(),
-                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
-
-                                }
                                 resetMessage?.let { message ->
                                     Text(
                                         text = message,
@@ -807,7 +755,7 @@ fun LoginScreen(
                         },
                         confirmButton = {
                             TextButton(
-                                onClick = { if (resetOtpSent) completePasswordReset() else requestPasswordReset() },
+                                onClick = { requestPasswordReset() },
                                 enabled = !isSendingReset
                             ) {
                                 if (isSendingReset) {
@@ -816,7 +764,7 @@ fun LoginScreen(
                                         strokeWidth = 2.dp
                                     )
                                 } else {
-                                    Text(if (resetOtpSent) "Verify & update password" else "Send reset code")
+                                    Text("Send reset link")
                                 }
                             }
                         },
@@ -848,11 +796,6 @@ fun LoginScreen(
                                     (authRepository.pendingMfaPhoneLabel() ?: "your enrolled phone")
                             )
                             Text("Your mobile carrier may charge for SMS messages.", fontSize = 12.sp, color = SlateMuted)
-                            Text(
-                                "Enter your 2nd Admin Security PIN (6464) or the 6-digit verification code sent to your admin email.",
-                                fontSize = 12.sp,
-                                color = SlateMuted
-                            )
                             OutlinedTextField(
                                 value = mfaCode,
                                 onValueChange = { mfaCode = it.filter(Char::isDigit).take(8) },

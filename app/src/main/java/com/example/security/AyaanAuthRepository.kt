@@ -6,9 +6,9 @@ import android.content.ContextWrapper
 import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
-import com.example.BuildConfig
 import com.example.data.database.AppDatabase
 import com.example.data.database.UserEntity
+import com.example.data.repository.AdminRepository
 import com.example.data.repository.SettingsRepository
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -43,44 +43,19 @@ class AyaanAuthRepository(context: Context) {
     private var pendingMfaCredential: com.google.firebase.auth.PhoneAuthCredential? = null
     private var pendingMfaPasswordHash: String = ""
 
-    private var pendingAdmin2fa: Boolean = false
-    private var pendingAdminEmail: String = BuildConfig.GMAIL_SENDER_EMAIL.ifBlank { "ayianrana20133@gmail.com" }
-    private var pendingAdminUid: String = "admin_ayaan_uid"
-    private var pendingAdminFullName: String = "Ayaan (Administrator)"
-    private var pendingAdminOtpCode: String? = null
-    private var pendingAdminOtpExpiresAt: Long = 0L
-
-    fun hasPendingMfaSignIn(): Boolean = pendingAdmin2fa || pendingMfaResolver != null
+    fun hasPendingMfaSignIn(): Boolean = pendingMfaResolver != null
 
     fun cancelPendingMfaSignIn() {
         clearPendingMfa()
     }
 
-    fun pendingMfaPhoneLabel(): String? =
-        if (pendingAdmin2fa) pendingAdminEmail
-        else pendingMfaResolver?.hints
-            ?.filterIsInstance<PhoneMultiFactorInfo>()
-            ?.firstOrNull()
-            ?.phoneNumber
+    fun pendingMfaPhoneLabel(): String? = pendingMfaResolver?.hints
+        ?.filterIsInstance<PhoneMultiFactorInfo>()
+        ?.firstOrNull()
+        ?.phoneNumber
 
     suspend fun sendPendingMfaCode(): Result<String> = withContext(Dispatchers.Main.immediate) {
         runCatching {
-            if (pendingAdmin2fa) {
-                val otp = (100000..999999).random().toString()
-                pendingAdminOtpCode = otp
-                pendingAdminOtpExpiresAt = System.currentTimeMillis() + 10 * 60 * 1000L
-                val emailSent = withContext(Dispatchers.IO) {
-                    if (BuildConfig.GMAIL_16_DIGIT_APP_PASSWORD.isNotBlank()) {
-                        AyaanEmailSender.sendPasswordResetOtpEmail(pendingAdminEmail, otp).isSuccess
-                    } else false
-                }
-                return@runCatching if (emailSent) {
-                    "2FA code sent to $pendingAdminEmail. Enter that 6-digit code OR your 2nd Admin PIN (6464)."
-                } else {
-                    "Enter your 2nd Admin Security PIN (6464) to unlock the Admin Command Center."
-                }
-            }
-
             val resolver = pendingMfaResolver ?: error("No pending multi-factor sign-in.")
             val hint = resolver.hints.filterIsInstance<PhoneMultiFactorInfo>().firstOrNull()
                 ?: error("This account has no supported SMS second factor.")
@@ -122,47 +97,6 @@ class AyaanAuthRepository(context: Context) {
         withContext(Dispatchers.IO) {
             runCatching {
                 val trimmedCode = code.trim()
-                if (pendingAdmin2fa) {
-                    val isPinMatch = trimmedCode == "6464" || trimmedCode == "11221122"
-                    val isOtpMatch = pendingAdminOtpCode != null &&
-                        System.currentTimeMillis() <= pendingAdminOtpExpiresAt &&
-                        trimmedCode == pendingAdminOtpCode
-                    require(isPinMatch || isOtpMatch) {
-                        "Invalid 2nd Admin PIN or 6-digit verification code."
-                    }
-                    val now = System.currentTimeMillis()
-                    val uid = auth.currentUser?.uid?.takeIf { it.isNotBlank() } ?: pendingAdminUid
-                    runCatching {
-                        firestore.collection("users").document(uid).set(
-                            mapOf(
-                                "uid" to uid,
-                                "fullName" to pendingAdminFullName,
-                                "username" to "ayaan",
-                                "email" to pendingAdminEmail,
-                                "authProvider" to "admin_2fa",
-                                "createdAt" to now,
-                                "lastLoginAt" to now,
-                                "activitySummary" to "Active in Admin Command Center",
-                                "role" to "ADMIN",
-                                "isRemoved" to false
-                            ),
-                            SetOptions.merge()
-                        ).await()
-                    }
-                    val adminUser = persistUser(
-                        uid = uid,
-                        username = "ayaan",
-                        fullName = pendingAdminFullName,
-                        email = pendingAdminEmail,
-                        role = "ADMIN",
-                        passwordHash = pendingMfaPasswordHash.ifBlank { sha256("6464") },
-                        authProvider = "admin_2fa",
-                        rememberMe = rememberMe
-                    )
-                    clearPendingMfa()
-                    return@runCatching adminUser
-                }
-
                 val resolver = pendingMfaResolver ?: error("No pending multi-factor sign-in.")
                 val credential = pendingMfaCredential ?: run {
                     val verificationId = pendingMfaVerificationId ?: error("Request a verification code first.")
@@ -182,7 +116,7 @@ class AyaanAuthRepository(context: Context) {
                     SetOptions.merge()
                 ).await()
                 val claims = runCatching { firebaseUser.getIdToken(true).await().claims }.getOrDefault(emptyMap())
-                val isAdmin = isAuthorizedAdmin(claims, firebaseUser.email)
+                val isAdmin = isAuthorizedAdmin(claims)
                 val user = persistUser(
                     uid = firebaseUser.uid,
                     username = document.getString("username")
@@ -222,15 +156,14 @@ class AyaanAuthRepository(context: Context) {
             }
             require(password.length >= 6) { "Password must be at least 6 characters." }
             val existingLocal = userDao.getUserByUsernameOrEmail(normalizedUsername)
-            if (existingLocal != null && normalizedEmail !in AUTHORIZED_ADMIN_EMAILS) {
+            if (existingLocal != null) {
                 error("That username is already registered.")
             }
 
             val credential = auth.createUserWithEmailAndPassword(normalizedEmail, password).await()
             val firebaseUser = credential.user ?: error("Firebase did not return the new user.")
             val uid = firebaseUser.uid
-            val isAdminEmail = normalizedEmail in AUTHORIZED_ADMIN_EMAILS
-            val assignedRole = if (isAdminEmail) "ADMIN" else "USER"
+            val assignedRole = "USER"
 
             runCatching {
                 firestore.collection("users").document(uid).set(
@@ -280,28 +213,12 @@ class AyaanAuthRepository(context: Context) {
             val trimmedPass = password.trim()
             val passwordHash = sha256(trimmedPass)
 
-            val isAdminIdentifier = lowerId == "ayaan" ||
-                lowerId == "ryaan" ||
-                lowerId == "ryan" ||
-                lowerId in AUTHORIZED_ADMIN_EMAILS
-
-            if (isAdminIdentifier && (trimmedPass == "6464" || trimmedPass == "11221122")) {
-                val resolvedAdminEmail = if (lowerId in AUTHORIZED_ADMIN_EMAILS) lowerId else "ayianrana20133@gmail.com"
-                pendingAdmin2fa = true
-                pendingAdminEmail = resolvedAdminEmail
-                pendingAdminUid = auth.currentUser?.uid?.takeIf { it.isNotBlank() } ?: "admin_ayaan_uid"
-                pendingAdminFullName = "Ayaan (Administrator)"
-                pendingMfaPasswordHash = passwordHash
-                throw IllegalStateException("Admin 2FA verification required.")
-            }
-
             val email = if (normalizedIdentifier.contains("@")) {
                 normalizedIdentifier.lowercase()
             } else {
                 val localAccount = userDao.getUserByUsername(lowerId)
                 localAccount?.email?.takeIf { it.isNotBlank() }
-                    ?: if (isAdminIdentifier) "ayianrana20133@gmail.com"
-                    else throw IllegalArgumentException("Account not found on this device. Sign in with your email address.")
+                    ?: throw IllegalArgumentException("Account not found on this device. Sign in with your email address.")
             }
 
             try {
@@ -319,7 +236,7 @@ class AyaanAuthRepository(context: Context) {
                 }
 
                 val claims = runCatching { firebaseUser.getIdToken(true).await().claims }.getOrDefault(emptyMap())
-                val isAdmin = isAuthorizedAdmin(claims, firebaseUser.email ?: email)
+                val isAdmin = isAuthorizedAdmin(claims)
 
                 runCatching {
                     firestore.collection("users").document(firebaseUser.uid).set(
@@ -328,22 +245,11 @@ class AyaanAuthRepository(context: Context) {
                             "email" to (firebaseUser.email ?: email),
                             "username" to (document?.getString("username") ?: (firebaseUser.email ?: email).substringBefore("@")),
                             "fullName" to (document?.getString("fullName") ?: firebaseUser.displayName ?: if (isAdmin) "Ayaan (Administrator)" else "Ayaan User"),
-                            "role" to if (isAdmin) "ADMIN" else "USER",
-                            "isRemoved" to false,
                             "lastLoginAt" to System.currentTimeMillis(),
                             "activitySummary" to "Active in App"
                         ),
                         SetOptions.merge()
                     ).await()
-                }
-
-                if (isAdmin) {
-                    pendingAdmin2fa = true
-                    pendingAdminEmail = (firebaseUser.email ?: email).lowercase()
-                    pendingAdminUid = firebaseUser.uid
-                    pendingAdminFullName = document?.getString("fullName") ?: firebaseUser.displayName ?: "Ayaan (Administrator)"
-                    pendingMfaPasswordHash = passwordHash
-                    throw IllegalStateException("Admin 2FA verification required.")
                 }
 
                 clearPendingMfa()
@@ -354,7 +260,7 @@ class AyaanAuthRepository(context: Context) {
                         ?: lowerId,
                     fullName = document?.getString("fullName") ?: firebaseUser.displayName ?: "Ayaan User",
                     email = firebaseUser.email ?: email,
-                    role = "USER",
+                    role = if (isAdmin) "ADMIN" else "USER",
                     passwordHash = passwordHash,
                     authProvider = "email",
                     rememberMe = rememberMe
@@ -373,25 +279,21 @@ class AyaanAuthRepository(context: Context) {
                 check(localAccount != null && (localAccount.passwordHash == passwordHash || localAccount.passwordHash == trimmedPass)) {
                     "Email, username, or password is incorrect."
                 }
+                check(
+                    !localAccount.role.equals("ADMIN", ignoreCase = true) &&
+                        localAccount.email.trim().lowercase() !in AdminRepository.AUTHORIZED_ADMIN_EMAILS
+                ) {
+                    "Administrator sign-in requires Firebase authentication and a verified admin claim."
+                }
                 check(!localAccount.isRemoved) {
                     "Your account has been removed by the Administrator."
-                }
-                val isAdminLocal = localAccount.role.equals("ADMIN", ignoreCase = true) ||
-                    localAccount.email.lowercase() in AUTHORIZED_ADMIN_EMAILS
-                if (isAdminLocal) {
-                    pendingAdmin2fa = true
-                    pendingAdminEmail = localAccount.email.ifBlank { "ayianrana20133@gmail.com" }
-                    pendingAdminUid = localAccount.firebaseUid.ifBlank { "admin_ayaan_uid" }
-                    pendingAdminFullName = localAccount.fullName.ifBlank { "Ayaan (Administrator)" }
-                    pendingMfaPasswordHash = passwordHash
-                    throw IllegalStateException("Admin 2FA verification required.")
                 }
                 persistUser(
                     uid = localAccount.firebaseUid.ifBlank { "local_${localAccount.id}" },
                     username = localAccount.username,
                     fullName = localAccount.fullName,
                     email = localAccount.email,
-                    role = localAccount.role.ifBlank { "USER" },
+                    role = "USER",
                     passwordHash = passwordHash,
                     authProvider = localAccount.authProvider.ifBlank { "email" },
                     createdAt = localAccount.createdAt,
@@ -480,57 +382,6 @@ class AyaanAuthRepository(context: Context) {
         }
     }
 
-    suspend fun sendPasswordResetOtpEmail(email: String): Result<String> = withContext(Dispatchers.IO) {
-        runCatching {
-            val normalizedEmail = email.trim().lowercase()
-            require(android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()) { "Enter a valid email address." }
-            val otp = (100000..999999).random().toString()
-            var smtpSent = false
-            if (BuildConfig.GMAIL_16_DIGIT_APP_PASSWORD.isNotBlank()) {
-                AyaanEmailSender.sendPasswordResetOtpEmail(normalizedEmail, otp).getOrThrow()
-                smtpSent = true
-            }
-            runCatching { auth.sendPasswordResetEmail(normalizedEmail).await()
-            Unit
-        }
-            otpEmail = normalizedEmail
-            otpCode = otp
-            otpExpiresAt = System.currentTimeMillis() + 10 * 60 * 1000
-            if (smtpSent) "6-digit verification code sent to $normalizedEmail via Gmail SMTP."
-            else "Firebase password reset email requested for $normalizedEmail."
-        }.onFailure {
-            if (it is CancellationException) throw it
-            Log.e(TAG, "OTP password reset request failed", it)
-        }
-    }
-
-    suspend fun completePasswordReset(email: String, enteredOtp: String, newPassword: String): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            val normalizedEmail = email.trim().lowercase()
-            require(newPassword.length >= 6) { "New password must be at least 6 characters." }
-            require(otpEmail == normalizedEmail) { "Request a new verification code for this email." }
-            require(System.currentTimeMillis() <= otpExpiresAt) { "The verification code has expired." }
-            require(otpCode == enteredOtp.trim()) { "Invalid verification code." }
-            val passwordHash = sha256(newPassword)
-            val localUser = userDao.getUserByUsernameOrEmail(normalizedEmail)
-                ?: userDao.getUserByUsernameOrEmail(normalizedEmail.substringBefore("@"))
-                ?: userDao.findUserByEmail(normalizedEmail)
-            val updatedUser = localUser?.copy(passwordHash = passwordHash, loginTimestamp = System.currentTimeMillis())
-            if (updatedUser != null) userDao.updateUser(updatedUser)
-            userDao.updatePasswordByEmail(normalizedEmail, passwordHash)
-            val firebaseUser = auth.currentUser
-            if (firebaseUser != null && firebaseUser.email?.equals(normalizedEmail, ignoreCase = true) == true) {
-                runCatching { firebaseUser.updatePassword(newPassword).await() }
-            }
-            otpEmail = null
-            otpCode = null
-            otpExpiresAt = 0L
-        }.onFailure {
-            if (it is CancellationException) throw it
-            Log.e(TAG, "Password reset verification failed", it)
-        }
-    }
-
     private suspend fun syncGoogleUser(
         uid: String,
         fullName: String,
@@ -547,19 +398,21 @@ class AyaanAuthRepository(context: Context) {
         val createdAt = document?.getLong("createdAt") ?: System.currentTimeMillis()
         val now = System.currentTimeMillis()
         val claims = runCatching { auth.currentUser?.getIdToken(true)?.await()?.claims.orEmpty() }.getOrDefault(emptyMap())
-        val isAdmin = isAuthorizedAdmin(claims, normalizedEmail)
+        val isAdmin = isAuthorizedAdmin(claims)
         val profile = mutableMapOf<String, Any>(
             "uid" to uid,
             "fullName" to fullName,
             "username" to username,
             "email" to normalizedEmail,
             "authProvider" to "google",
-            "createdAt" to createdAt,
             "lastLoginAt" to now,
-            "role" to if (isAdmin) "ADMIN" else "USER",
             "activitySummary" to "Active in App"
         )
-        if (document == null || !document.exists()) profile["isRemoved"] = false
+        if (isAdmin) profile["role"] = "ADMIN"
+        if (document == null || !document.exists()) {
+            profile["createdAt"] = createdAt
+            profile["isRemoved"] = false
+        }
         runCatching {
             firestore.collection("users").document(uid)
                 .set(profile, SetOptions.merge())
@@ -589,17 +442,13 @@ class AyaanAuthRepository(context: Context) {
     }
 
     private fun clearPendingMfa() {
-        pendingAdmin2fa = false
-        pendingAdminOtpCode = null
-        pendingAdminOtpExpiresAt = 0L
         pendingMfaResolver = null
         pendingMfaVerificationId = null
         pendingMfaCredential = null
         pendingMfaPasswordHash = ""
     }
 
-    private fun isAuthorizedAdmin(claims: Map<String, Any>, email: String?): Boolean =
-        claims["admin"] == true || email?.trim()?.lowercase() in AUTHORIZED_ADMIN_EMAILS
+    private fun isAuthorizedAdmin(claims: Map<String, Any>): Boolean = claims["admin"] == true
 
     private suspend fun persistUser(
         uid: String,
@@ -639,10 +488,6 @@ class AyaanAuthRepository(context: Context) {
         return entity
     }
 
-    private var otpEmail: String? = null
-    private var otpCode: String? = null
-    private var otpExpiresAt: Long = 0L
-
     private fun sha256(value: String): String {
         val digest = java.security.MessageDigest.getInstance("SHA-256")
         return digest.digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
@@ -650,10 +495,5 @@ class AyaanAuthRepository(context: Context) {
 
     companion object {
         const val TAG = "AyaanAuthRepository"
-        val AUTHORIZED_ADMIN_EMAILS = setOf(
-            "ayianrana20133@gmail.com",
-            "ranasalar964@gmail.com"
-        )
     }
 }
-

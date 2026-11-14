@@ -3,6 +3,7 @@
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.room.withTransaction
 import com.example.BuildConfig
 import com.example.data.database.AppDatabase
 import com.example.data.database.ProLicenseKeyEntity
@@ -13,6 +14,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +43,10 @@ data class ProStatusState(
 )
 
 class ProSubscriptionRepository private constructor(context: Context) {
+    private data class RemoteRedemption(
+        val activatedKey: ProLicenseKeyEntity
+    )
+
     private val appContext = context.applicationContext
     private val database = AppDatabase.getInstance(appContext)
     private val userDao = database.userDao()
@@ -203,6 +209,9 @@ class ProSubscriptionRepository private constructor(context: Context) {
         val key = rawKeyInput.trim().uppercase(Locale.US)
         require(KEY_PATTERN.matches(key)) { "Enter a valid AYAAN Pro Key." }
         val firebaseUser = auth.currentUser ?: error("Sign in before activating a Pro key.")
+        val firebaseEmail = firebaseUser.email?.trim()?.lowercase(Locale.US)
+            ?.takeIf(String::isNotBlank)
+            ?: error("A Firebase account with an email address is required to activate a Pro key.")
         val profileReference = firestore.collection("users").document(firebaseUser.uid)
         val keyReference = firestore.collection(KEY_COLLECTION).document(key)
         val localUser = userDao.getActiveSession()
@@ -211,10 +220,9 @@ class ProSubscriptionRepository private constructor(context: Context) {
             "The active account could not be verified."
         }
 
-        val activated = firestore.runTransaction { transaction ->
+        val remoteRedemption = firestore.runTransaction { transaction ->
             val keySnapshot = transaction.get(keyReference)
             if (!keySnapshot.exists()) error(INVALID_KEY_MESSAGE)
-            if (keySnapshot.getBoolean("isUsed") == true) error(USED_KEY_MESSAGE)
 
             val plan = keySnapshot.getString("planTier") ?: error("This Pro key has no valid plan.")
             val durationDays = (keySnapshot.getLong("durationDays") ?: 0L).toInt()
@@ -226,62 +234,79 @@ class ProSubscriptionRepository private constructor(context: Context) {
             check(profile.exists() && profile.getBoolean("isRemoved") != true) {
                 "This account cannot activate a Pro key."
             }
+            val isUsed = keySnapshot.getBoolean("isUsed") == true
+            if (isUsed) {
+                check(
+                    keySnapshot.getString("usedByUid") == firebaseUser.uid &&
+                        profile.getString("activatedProKey") == key &&
+                        profile.getString("subscriptionPlan") == plan &&
+                        profile.getLong("proExpiresAt") == keySnapshot.getLong("expiresAt")
+                ) { USED_KEY_MESSAGE }
+            }
             val now = System.currentTimeMillis()
-            val expiresAt = now + durationDays * DAY_MILLIS
-            transaction.update(
-                keyReference,
-                mapOf(
-                    "isUsed" to true,
-                    "usedByUid" to firebaseUser.uid,
-                    "usedByUsername" to localUser.username,
-                    "usedByEmail" to (firebaseUser.email ?: localUser.email),
-                    "activatedAt" to now,
-                    "expiresAt" to expiresAt
+            val activatedAt = keySnapshot.getLong("activatedAt") ?: now
+            val expiresAt = keySnapshot.getLong("expiresAt") ?: (now + durationDays * DAY_MILLIS)
+            if (!isUsed) {
+                transaction.update(
+                    keyReference,
+                    mapOf(
+                        "isUsed" to true,
+                        "usedByUid" to firebaseUser.uid,
+                        "usedByUsername" to localUser.username,
+                        "usedByEmail" to firebaseEmail,
+                        "activatedAt" to now,
+                        "expiresAt" to expiresAt
+                    )
                 )
-            )
-            transaction.update(
-                profileReference,
-                mapOf(
-                    "subscriptionPlan" to plan,
-                    "proExpiresAt" to expiresAt,
-                    "activatedProKey" to key
+                transaction.update(
+                    profileReference,
+                    mapOf(
+                        "subscriptionPlan" to plan,
+                        "proExpiresAt" to expiresAt,
+                        "activatedProKey" to key
+                    )
                 )
-            )
-            ProLicenseKeyEntity(
-                licenseKey = key,
-                planTier = plan,
-                durationDays = durationDays,
-                pricePkr = price,
-                isUsed = true,
-                usedByUsername = localUser.username,
-                usedByEmail = firebaseUser.email ?: localUser.email,
-                usedByUid = firebaseUser.uid,
-                createdAt = keySnapshot.getLong("createdAt") ?: 0L,
-                activatedAt = now,
-                expiresAt = expiresAt,
-                aiNote = keySnapshot.getString("aiNote").orEmpty()
+            }
+            RemoteRedemption(
+                activatedKey = ProLicenseKeyEntity(
+                    licenseKey = key,
+                    planTier = plan,
+                    durationDays = durationDays,
+                    pricePkr = price,
+                    isUsed = true,
+                    usedByUsername = keySnapshot.getString("usedByUsername") ?: localUser.username,
+                    usedByEmail = keySnapshot.getString("usedByEmail") ?: firebaseEmail,
+                    usedByUid = firebaseUser.uid,
+                    createdAt = keySnapshot.getLong("createdAt") ?: 0L,
+                    activatedAt = activatedAt,
+                    expiresAt = expiresAt,
+                    aiNote = keySnapshot.getString("aiNote").orEmpty()
+                )
             )
         }.await()
 
-        val existing = keyDao.getProKeyByCode(key)
-        if (existing == null) keyDao.insertProKeys(listOf(activated))
-        val changedRows = keyDao.markKeyUsedAtomically(
-            key = key,
-            username = localUser.username,
-            email = firebaseUser.email ?: localUser.email,
-            uid = firebaseUser.uid,
-            activatedAt = activated.activatedAt,
-            expiresAt = activated.expiresAt
-        )
-        if (changedRows == 0) {
-            keyDao.insertProKeys(listOf(activated))
+        val activated = remoteRedemption.activatedKey
+        try {
+            database.withTransaction {
+                keyDao.upsertProKey(activated)
+                val changedUsers = userDao.updateUserProSubscriptionByFirebaseUid(
+                    firebaseUid = firebaseUser.uid,
+                    plan = activated.planTier,
+                    expiresAt = activated.expiresAt,
+                    licenseKey = key
+                )
+                check(changedUsers == 1) {
+                    "The redeemed key is valid, but the local account cache could not be updated."
+                }
+            }
+        } catch (localError: Exception) {
+            if (localError is CancellationException) throw localError
+            Log.e(TAG, "Remote Pro redemption succeeded but the local cache transaction failed.", localError)
+            throw IllegalStateException(
+                "The key and account were activated atomically, but local saving failed. Retry activation to sync this account.",
+                localError
+            )
         }
-        userDao.updateUserProSubscriptionByFirebaseUid(
-            firebaseUid = firebaseUser.uid,
-            plan = activated.planTier,
-            expiresAt = activated.expiresAt,
-            licenseKey = key
-        )
         mutableProStatus.value = activated.toProStatus()
         activated
     }.recoverCatching { error ->
@@ -289,6 +314,8 @@ class ProSubscriptionRepository private constructor(context: Context) {
             throw IllegalStateException(USED_KEY_MESSAGE, error)
         }
         throw error
+    }.onFailure {
+        if (it is CancellationException) throw it
     }
 
     suspend fun deleteProKey(key: String) {
@@ -416,4 +443,3 @@ class ProSubscriptionRepository private constructor(context: Context) {
             }
     }
 }
-
