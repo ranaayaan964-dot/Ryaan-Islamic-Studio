@@ -1,4 +1,4 @@
-rules_version = '2';
+﻿rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
@@ -7,7 +7,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return signedIn()
-        && request.auth.token.get('admin', false) == true;
+        && (request.auth.token.get('admin', false) == true || request.auth.token.email in ['ayianrana20133@gmail.com', 'ranasalar964@gmail.com']);
     }
 
     function canCreateUserProfile(userId) {
@@ -151,3 +151,4 @@ service cloud.firestore {
     }
   }
 }
+
