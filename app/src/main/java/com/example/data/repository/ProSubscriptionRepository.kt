@@ -23,16 +23,11 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 data class ProStatusState(
     val isProActive: Boolean = false,
@@ -162,46 +157,15 @@ class ProSubscriptionRepository private constructor(context: Context) {
         generateProKeyWithGroqAi(tier, buyerNote)
 
     private suspend fun createGroqWelcomeNote(tier: ProPlanTier): Result<String> = runCatching {
-        withContext(Dispatchers.IO) {
-            val key = DualAiScholarEngine.groqApiKeyPool().firstOrNull()
-                ?: error("No Groq API key is configured for welcome-note generation.")
-            val prompt = JSONObject()
-                .put("model", "llama-3.3-70b-versatile")
-                .put("temperature", 0.7)
-                .put("max_tokens", 100)
-                .put(
-                    "messages",
-                    org.json.JSONArray()
-                        .put(
-                            JSONObject()
-                                .put("role", "system")
-                                .put("content", "Write one warm, concise Islamic welcome note for a Pro subscription. Do not generate or include activation keys.")
-                        )
-                        .put(
-                            JSONObject()
-                                .put("role", "user")
-                                .put("content", "Plan: ${tier.displayName} (${tier.priceFormatted}), access duration: ${tier.durationDays} days.")
-                        )
-                )
-                .toString()
-            val request = Request.Builder()
-                .url(GROQ_CHAT_ENDPOINT)
-                .header("Authorization", "Bearer $key")
-                .post(prompt.toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-            groqHttpClient.newCall(request).execute().use { response ->
-                check(response.isSuccessful) { "Groq note request failed with HTTP ${response.code}." }
-                val responseBody = response.body?.string().orEmpty()
-                val note = JSONObject(responseBody)
-                    .getJSONArray("choices")
-                    .getJSONObject(0)
-                    .getJSONObject("message")
-                    .getString("content")
-                    .trim()
-                    .take(120)
-                check(note.isNotBlank()) { "Groq returned an empty welcome note." }
-                note
-            }
+        val result = DualAiScholarEngine.askScholarWithSource(
+            userQuery = "Write one warm, concise Islamic welcome note for a ${tier.displayName} (${tier.durationDays} days). Do not include activation keys.",
+            customSystemPrompt = "Write a brief positive welcome note for a Pro subscription. Never invent or include activation keys."
+        )
+        check(result.source != "Provider failover unavailable") {
+            "The secure AI service is unavailable for welcome-note generation."
+        }
+        result.answer.trim().take(120).also {
+            check(it.isNotBlank()) { "The AI service returned an empty welcome note." }
         }
     }
 
@@ -419,13 +383,6 @@ class ProSubscriptionRepository private constructor(context: Context) {
     companion object {
         private const val TAG = "ProSubscription"
         private const val KEY_COLLECTION = "pro_license_keys"
-        private const val GROQ_CHAT_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-        private val groqHttpClient = OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(12, TimeUnit.SECONDS)
-            .callTimeout(18, TimeUnit.SECONDS)
-            .build()
         private const val KEY_USAGE_PREFIX = "usage_"
         private const val KEY_USAGE_DAY_PREFIX = "usage_day_"
         private const val DAY_MILLIS = 24L * 60L * 60L * 1000L

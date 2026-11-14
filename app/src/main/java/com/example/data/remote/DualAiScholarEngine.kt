@@ -4,57 +4,13 @@ import android.content.Context
 import android.util.Log
 import com.example.data.database.AppDatabase
 import com.example.data.database.ChatHistoryEntity
-import com.squareup.moshi.Json
-import com.squareup.moshi.JsonClass
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.TimeUnit
-
-// --- Groq OpenAI-Compatible DTOs ---
-
-@JsonClass(generateAdapter = true)
-data class GroqChatRequest(
-    val model: String = "llama-3.3-70b-versatile",
-    val messages: List<GroqMessage>,
-    val temperature: Float = 0.6f,
-    @Json(name = "max_tokens") val maxTokens: Int = 2048
-)
-
-@JsonClass(generateAdapter = true)
-data class GroqMessage(
-    val role: String,
-    val content: String
-)
-
-@JsonClass(generateAdapter = true)
-data class GroqChatResponse(
-    val choices: List<GroqChoice>? = null,
-    val error: GroqError? = null
-)
-
-@JsonClass(generateAdapter = true)
-data class GroqChoice(
-    val message: GroqMessage? = null
-)
-
-@JsonClass(generateAdapter = true)
-data class GroqError(
-    val message: String? = null,
-    val type: String? = null
-)
 
 data class AiScholarResult(
     val answer: String,
@@ -74,43 +30,15 @@ data class AiScholarResult(
 object DualAiScholarEngine {
     private const val TAG = "DualAiScholarEngine"
 
-    private const val GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-    private const val GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
-    private const val KEYLESS_ENDPOINT = "https://text.pollinations.ai/openai"
     private const val COOLDOWN_DURATION_MS = 60_000L
-    private const val INVALID_KEY_COOLDOWN_MS = 10 * 60_000L
     private const val TRANSIENT_COOLDOWN_MS = 15_000L
 
     private val cooldownMap = ConcurrentHashMap<String, Long>()
-    private val geminiKeyCursor = AtomicInteger()
-    private val groqKeyCursor = AtomicInteger()
     private val geminiModelCursor = AtomicInteger()
     private val groqModelCursor = AtomicInteger()
-    private val keylessModelCursor = AtomicInteger()
 
-    private val geminiModels = listOf("gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite")
+    private val geminiModels = listOf("gemini-2.5-flash", "gemini-3.1-pro-preview", "gemini-2.0-flash")
     private val groqModels = listOf("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it")
-    private val keylessModels = listOf("openai", "mistral", "llama")
-
-    private val moshi by lazy {
-        Moshi.Builder()
-            .add(KotlinJsonAdapterFactory())
-            .build()
-    }
-
-    private val geminiReqAdapter by lazy { moshi.adapter(GeminiRequest::class.java) }
-    private val geminiResAdapter by lazy { moshi.adapter(GeminiResponse::class.java) }
-    private val groqReqAdapter by lazy { moshi.adapter(GroqChatRequest::class.java) }
-    private val groqResAdapter by lazy { moshi.adapter(GroqChatResponse::class.java) }
-
-    private val routerHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(12, TimeUnit.SECONDS)
-            .writeTimeout(8, TimeUnit.SECONDS)
-            .callTimeout(18, TimeUnit.SECONDS)
-            .build()
-    }
 
     // MODULE 10: UNBREAKABLE ISLAMIC SCHOLAR GUARDRAILS (VERSION 1.1 WITH TABEER DREAM INTERPRETATION)
     private const val SYSTEM_PROMPT = """You are Noor, a highly knowledgeable and devout Islamic Scholar and Mufti. You are strictly permitted to answer questions on Islam, Quran, Hadith, Fiqh, Islamic history, Halal/Haram guidelines, and Islamic Dream Interpretation (Tabeer-ur-Roya / تعبیر الرؤیا) based on the authentic methodology of Imam Muhammad Ibn Sirin and the Sunnah. You MUST outright refuse to answer any questions about computer coding, software programming, worldly politics, movies, Hollywood/Bollywood entertainment, celebrities, or unrelated secular topics. If the user asks anything outside the Deen, reply ONLY with: 'I am an Islamic Scholar. I can only assist you with matters related to the Deen and Islamic Dream Interpretation (Tabeer).' Do not break character under any circumstances."""
@@ -188,195 +116,79 @@ object DualAiScholarEngine {
                 )
         }
 
-    private data class ProviderResponse(val code: Int?, val body: String?)
-
-    private fun routeText(userQuery: String, systemPrompt: String): AiScholarResult? {
-        val geminiKeys = rotate(geminiApiKeyPool(), geminiKeyCursor)
-        val orderedGeminiModels = rotate(geminiModels, geminiModelCursor)
-        for (apiKey in geminiKeys) {
-            for (model in orderedGeminiModels) {
-                val routeId = routeId("gemini", model, apiKey)
+    private suspend fun routeText(userQuery: String, systemPrompt: String): AiScholarResult? {
+        val providers = listOf(
+            "gemini" to rotate(geminiModels, geminiModelCursor),
+            "groq" to rotate(groqModels, groqModelCursor)
+        )
+        for ((provider, models) in providers) {
+            for (model in models) {
+                val routeId = "$provider:$model"
                 if (isOnCooldown(routeId)) continue
-                val answer = tryGeminiModel(apiKey, model, systemPrompt, userQuery, routeId)
-                if (!answer.isNullOrBlank()) {
-                    return AiScholarResult(answer.trim(), "Gemini $model")
+                val answer = try {
+                    val payload = if (provider == "gemini") {
+                        JSONObject()
+                            .put(
+                                "contents",
+                                JSONArray().put(
+                                    JSONObject()
+                                        .put("role", "user")
+                                        .put("parts", JSONArray().put(JSONObject().put("text", userQuery)))
+                                )
+                            )
+                            .put(
+                                "systemInstruction",
+                                JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt)))
+                            )
+                            .put(
+                                "generationConfig",
+                                JSONObject().put("temperature", 0.3).put("maxOutputTokens", 1024)
+                            )
+                    } else {
+                        JSONObject()
+                            .put("model", model)
+                            .put(
+                                "messages",
+                                JSONArray()
+                                    .put(JSONObject().put("role", "system").put("content", systemPrompt))
+                                    .put(JSONObject().put("role", "user").put("content", userQuery))
+                            )
+                            .put("temperature", 0.3)
+                            .put("max_tokens", 1024)
+                    }
+                    val result = AiProxyClient.generate(provider, model, payload)
+                    if (provider == "gemini") {
+                        result.optJSONArray("candidates")
+                            ?.optJSONObject(0)
+                            ?.optJSONObject("content")
+                            ?.optJSONArray("parts")
+                            ?.let { parts ->
+                                (0 until parts.length())
+                                    .mapNotNull { parts.optJSONObject(it)?.optString("text") }
+                                    .joinToString("\n")
+                                    .trim()
+                            }
+                    } else {
+                        result.optJSONArray("choices")
+                            ?.optJSONObject(0)
+                            ?.optJSONObject("message")
+                            ?.optString("content")
+                            ?.trim()
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.w(TAG, "AI proxy route failed: route=$routeId error=${error::class.java.simpleName}")
+                    null
                 }
-            }
-        }
-
-        val groqKeys = rotate(groqApiKeyPool(), groqKeyCursor)
-        val orderedGroqModels = rotate(groqModels, groqModelCursor)
-        for (apiKey in groqKeys) {
-            for (model in orderedGroqModels) {
-                val routeId = routeId("groq", model, apiKey)
-                if (isOnCooldown(routeId)) continue
-                val answer = tryGroqModel(apiKey, model, systemPrompt, userQuery, routeId)
                 if (!answer.isNullOrBlank()) {
-                    return AiScholarResult(answer.trim(), "Groq $model")
+                    cooldownMap.remove(routeId)
+                    return AiScholarResult(answer.trim(), "${provider.replaceFirstChar(Char::uppercase)} $model")
                 }
-            }
-        }
-
-        for (model in rotate(keylessModels, keylessModelCursor)) {
-            val routeId = "keyless:$model"
-            if (isOnCooldown(routeId)) continue
-            val answer = tryKeylessModel(model, systemPrompt, userQuery, routeId)
-            if (!answer.isNullOrBlank()) {
-                return AiScholarResult(answer.trim(), "Pollinations $model")
+                markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
             }
         }
         return null
-    }
-
-    private fun tryGeminiModel(
-        apiKey: String,
-        model: String,
-        systemPrompt: String,
-        userQuery: String,
-        routeId: String
-    ): String? {
-        val requestDto = GeminiRequest(
-            contents = listOf(GeminiContent(role = "user", parts = listOf(GeminiPart(text = userQuery)))),
-            systemInstruction = GeminiContent(parts = listOf(GeminiPart(text = systemPrompt))),
-            generationConfig = GeminiGenerationConfig(temperature = 0.3f, maxOutputTokens = 1024)
-        )
-        val body = try {
-            geminiReqAdapter.toJson(requestDto)
-        } catch (e: Exception) {
-            Log.w(TAG, "Gemini request serialization failed for $model", e)
-            markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
-            return null
-        }
-        val url = "$GEMINI_ENDPOINT/$model:generateContent".toHttpUrl()
-            .newBuilder()
-            .addQueryParameter("key", apiKey)
-            .build()
-        val request = Request.Builder()
-            .url(url)
-            .header("Content-Type", "application/json")
-            .post(body.toRequestBody("application/json".toMediaType()))
-            .build()
-        val response = executeProviderRequest(request, routeId) ?: return null
-        if (response.code !in 200..299) return null
-        val result = try {
-            geminiResAdapter.fromJson(response.body.orEmpty())
-                ?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
-        } catch (e: Exception) {
-            Log.w(TAG, "Gemini response parsing failed for $model", e)
-            null
-        }
-        return acceptAnswer(routeId, result)
-    }
-
-    private fun tryGroqModel(
-        apiKey: String,
-        model: String,
-        systemPrompt: String,
-        userQuery: String,
-        routeId: String
-    ): String? {
-        val requestDto = GroqChatRequest(
-            model = model,
-            messages = listOf(
-                GroqMessage(role = "system", content = systemPrompt),
-                GroqMessage(role = "user", content = userQuery)
-            ),
-            temperature = 0.3f,
-            maxTokens = 1024
-        )
-        val body = try {
-            groqReqAdapter.toJson(requestDto)
-        } catch (e: Exception) {
-            Log.w(TAG, "Groq request serialization failed for $model", e)
-            markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
-            return null
-        }
-        val request = Request.Builder()
-            .url(GROQ_ENDPOINT)
-            .header("Authorization", "Bearer $apiKey")
-            .header("Content-Type", "application/json")
-            .post(body.toRequestBody("application/json".toMediaType()))
-            .build()
-        val response = executeProviderRequest(request, routeId) ?: return null
-        if (response.code !in 200..299) return null
-        val result = try {
-            groqResAdapter.fromJson(response.body.orEmpty())
-                ?.choices?.firstOrNull()?.message?.content?.trim()
-        } catch (e: Exception) {
-            Log.w(TAG, "Groq response parsing failed for $model", e)
-            null
-        }
-        return acceptAnswer(routeId, result)
-    }
-
-    private fun tryKeylessModel(
-        model: String,
-        systemPrompt: String,
-        userQuery: String,
-        routeId: String
-    ): String? {
-        val payload = JSONObject().apply {
-            put("model", model)
-            put("messages", JSONArray().apply {
-                put(JSONObject().put("role", "system").put("content", systemPrompt))
-                put(JSONObject().put("role", "user").put("content", userQuery))
-            })
-            put("temperature", 0.3)
-        }
-        val request = Request.Builder()
-            .url(KEYLESS_ENDPOINT)
-            .header("Content-Type", "application/json")
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-        val response = executeProviderRequest(request, routeId) ?: return null
-        if (response.code !in 200..299) return null
-        val responseBody = response.body.orEmpty().trim()
-        val answer = try {
-            if (responseBody.startsWith("{")) {
-                val choices = JSONObject(responseBody).optJSONArray("choices")
-                choices?.optJSONObject(0)?.optJSONObject("message")?.optString("content")?.trim()
-            } else {
-                responseBody
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Pollinations response parsing failed for $model", e)
-            null
-        }
-        return acceptAnswer(routeId, answer)
-    }
-
-    private fun executeProviderRequest(request: Request, routeId: String): ProviderResponse? {
-        return try {
-            routerHttpClient.newCall(request).execute().use { response ->
-                val body = response.body?.string()
-                when {
-                    response.code == 429 || response.code in 500..599 ->
-                        markCooldown(routeId)
-                    response.code == 401 || response.code == 403 ->
-                        markCooldown(routeId, INVALID_KEY_COOLDOWN_MS)
-                    !response.isSuccessful -> markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
-                }
-                if (!response.isSuccessful) {
-                    Log.w(TAG, "Provider request failed: route=$routeId status=${response.code}")
-                }
-                ProviderResponse(response.code, body)
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "Provider request failed: route=$routeId error=${e::class.java.simpleName}")
-            markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
-            null
-        }
-    }
-
-    private fun acceptAnswer(routeId: String, answer: String?): String? {
-        if (answer.isNullOrBlank()) {
-            markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
-            return null
-        }
-        cooldownMap.remove(routeId)
-        return answer
     }
 
     internal fun parseConfiguredKeyPool(raw: String): List<String> = raw
@@ -385,24 +197,10 @@ object DualAiScholarEngine {
         .filter { it.isNotBlank() && !it.startsWith("YOUR_") && !it.startsWith("MY_") }
         .distinct()
 
-    internal fun geminiApiKeyPool(): List<String> =
-        parseConfiguredKeyPool(GeminiApiClient.getResolvedGeminiKey())
-
-    internal fun groqApiKeyPool(): List<String> =
-        parseConfiguredKeyPool(GroqHifzClient.getResolvedGroqKey())
-
     private fun <T> rotate(values: List<T>, cursor: AtomicInteger): List<T> {
         if (values.size < 2) return values
         val offset = Math.floorMod(cursor.getAndIncrement(), values.size)
         return values.drop(offset) + values.take(offset)
-    }
-
-    private fun routeId(provider: String, model: String, apiKey: String): String {
-        val keyFingerprint = MessageDigest.getInstance("SHA-256")
-            .digest(apiKey.toByteArray())
-            .take(6)
-            .joinToString("") { "%02x".format(it) }
-        return "$provider:$model:$keyFingerprint"
     }
 
     private fun isOnCooldown(routeId: String): Boolean {

@@ -27,19 +27,11 @@ fun resolveSecret(name: String): String =
 fun String.toBuildConfigStringLiteral(): String =
   "\"${replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n").replace("$", "\\$")}\""
 
-val geminiApiKey = resolveSecret("GEMINI_API_KEY")
-val groqApiKey = resolveSecret("GROQ_API_KEY")
-val groqApiKey2 = resolveSecret("GROQ_API_KEY2")
 val gmailSenderEmail = resolveSecret("GMAIL_SENDER_EMAIL").ifBlank { "ayianrana20133@gmail.com" }
-val gmailAppPassword = resolveSecret("GMAIL_16_DIGIT_APP_PASSWORD")
 val proSupportEmail = resolveSecret("PRO_SUPPORT_EMAIL").ifBlank { "ranasalar964@gmail.com" }
 val unityGameId = resolveSecret("UNITY_GAME_ID").ifBlank { "800424750" }
-
-if (gmailAppPassword.isNotBlank()) {
-  logger.warn("GMAIL_16_DIGIT_APP_PASSWORD is configured but intentionally excluded from BuildConfig and the APK.")
-}
-
-// Runtime API keys shipped in a mobile app can be extracted; keep confidential keys behind a trusted backend.
+val aiProxyBaseUrl = resolveSecret("AI_PROXY_BASE_URL")
+  .ifBlank { "https://us-central1-ryaan-islamic-studio.cloudfunctions.net/aiScholarProxy" }
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -53,12 +45,7 @@ android {
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-    buildConfigField("String", "GEMINI_API_KEY", geminiApiKey.toBuildConfigStringLiteral())
-    buildConfigField(
-      "String",
-      "GROQ_API_KEY",
-      listOf(groqApiKey, groqApiKey2).filter(String::isNotBlank).joinToString(",").toBuildConfigStringLiteral()
-    )
+    buildConfigField("String", "AI_PROXY_BASE_URL", aiProxyBaseUrl.toBuildConfigStringLiteral())
     buildConfigField("String", "GMAIL_SENDER_EMAIL", gmailSenderEmail.toBuildConfigStringLiteral())
     buildConfigField("String", "PRO_SUPPORT_EMAIL", proSupportEmail.toBuildConfigStringLiteral())
     buildConfigField("String", "UNITY_GAME_ID", unityGameId.toBuildConfigStringLiteral())
