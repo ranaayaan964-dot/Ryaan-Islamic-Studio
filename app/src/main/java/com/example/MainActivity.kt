@@ -73,6 +73,7 @@ import com.example.audio.AudioCacheManager
 import com.example.service.audio.QuranAudioController
 import com.example.service.location.LocationServicesWrapper
 import com.example.ui.components.UpdateDialog
+import com.example.ui.components.WilmsAiPromotionDialog
 import com.example.ui.components.audio.QuranPlaybackControlBar
 import com.example.ui.screens.AiCompanionScreen
 import com.example.ui.screens.ArabicScannerScreen
@@ -189,6 +190,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var currentDestination by remember { mutableStateOf(AppDestination.SPLASH) }
+            var showWilmsPromotion by remember { mutableStateOf(false) }
             val updateViewModel: UpdateViewModel = viewModel()
             val updateState by updateViewModel.uiState.collectAsStateWithLifecycle()
             val themeRepo = remember { com.example.data.repository.ThemeSettingsRepository.getInstance(this@MainActivity) }
@@ -249,6 +251,7 @@ class MainActivity : ComponentActivity() {
                             SplashScreen(
                                 onNavigateNext = { isLoggedIn ->
                                     currentDestination = if (isLoggedIn) AppDestination.AGREEMENT else AppDestination.LOGIN
+                                    showWilmsPromotion = true
                                 }
                             )
                         }
@@ -312,6 +315,11 @@ class MainActivity : ComponentActivity() {
                         UpdateDialog(
                             newVersionName = updateState.newVersionName,
                             downloadUrl = updateState.downloadUrl
+                        )
+                    }
+                    if (showWilmsPromotion && !updateState.showUpdateDialog) {
+                        WilmsAiPromotionDialog(
+                            onDismiss = { showWilmsPromotion = false }
                         )
                     }
                 }
