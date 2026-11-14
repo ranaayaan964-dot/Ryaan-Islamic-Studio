@@ -143,14 +143,9 @@ object DualAiScholarEngine {
             }
 
             val result = routeText(userQuery, SYSTEM_PROMPT)
-                ?: generateOfflineScholarlyFallback(userQuery)
+                ?: generateUnavailableResponse()
 
-            // 4. Persist AI Scholar Answer to Room DB safely
-            val extractedRefs = try {
-                extractReferences(result.answer)
-            } catch (_: Exception) {
-                listOf("Quran & Authentic Sunnah")
-            }
+            val extractedRefs = extractReferences(result.answer)
 
             try {
                 appDb?.chatDao()?.insertChat(
@@ -172,9 +167,9 @@ object DualAiScholarEngine {
             result.copy(references = extractedRefs)
         } catch (e: CancellationException) {
             throw e
-        } catch (t: Throwable) {
-            Log.e(TAG, "Critical error intercepted in askScholar: ${t.message}", t)
-            generateOfflineScholarlyFallback(userQuery)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get a scholar response: ${e.message}", e)
+            generateUnavailableResponse()
         }
     }
 
@@ -421,50 +416,14 @@ object DualAiScholarEngine {
         cooldownMap[routeId] = System.currentTimeMillis() + durationMs
     }
 
-    private fun generateOfflineScholarlyFallback(prompt: String): AiScholarResult {
-        val lower = prompt.lowercase().trim()
-        val nonIslamicKeywords = listOf(
-            "code", "coding", "python", "java", "javascript", "c++", "programming", "html", "css", "bug", "script",
-            "movie", "celebrity", "actor", "actress", "hollywood", "bollywood", "politics", "president", "election",
-            "football", "basketball", "nba", "fifa", "crypto trading bot", "quantum physics", "spacex", "elon musk"
-        )
-        val islamicKeywords = listOf("islam", "halal", "haram", "quran", "sunnah", "hadith", "fiqh", "shariah", "allah", "prophet", "salah", "zakat", "fasting", "ramadan")
-        if (nonIslamicKeywords.any { lower.contains(it) } && !islamicKeywords.any { lower.contains(it) }) {
-            return AiScholarResult(
-                answer = "I am an Islamic Scholar. I can only assist you with matters related to the Deen.",
-                source = "Noor Islamic Scholar Guardrail"
-            )
-        }
-
-        val answer = """
-            Bismillahir Rahmanir Rahim.
-            As-salamu alaykum wa Rahmatullah.
-            
-            Regarding your inquiry: "$prompt"
-            
-            In Islamic jurisprudence and classical theology, actions and rulings are derived from the Holy Quran and the authentic Sunnah of the Prophet Muhammad ﷺ.
-            
-            Allah Almighty declares in the Noble Quran:
-            "O you who have believed, obey Allah and obey the Messenger and those in authority among you. And if you disagree over anything, refer it to Allah and the Messenger, if you should believe in Allah and the Last Day." [Surah An-Nisa 4:59]
-            
-            The Messenger of Allah ﷺ said:
-            "I have left among you two matters of which if you adhere to them, you shall not be led astray: the Book of Allah and my Sunnah." [Al-Muwatta 1661, Sahih]
-            
-            For practical daily matters, maintain steadfastness in your five daily prayers (Salah), seek halal sustenance, uphold the ties of kinship, and recite Surah Al-Ikhlas, Al-Falaq, and An-Nas for continuous divine protection.
-            
-            And Allah knows best (Allahu A'lam).
-        """.trimIndent()
-
-        return AiScholarResult(
-            answer = answer,
-            source = "Embedded Classical Islamic Corpus"
-        )
-    }
-
     private fun extractReferences(text: String): List<String> {
         val regex = Regex("\\[(Surah [^\\]]+|Sahih [^\\]]+|Sunan [^\\]]+|Al-Muwatta [^\\]]+)\\]")
         val matches = regex.findAll(text).map { it.value.removeSurrounding("[", "]") }.toList()
-        return if (matches.isNotEmpty()) matches else listOf("Quran & Authentic Sunnah", "Ijma (Consensus)")
+        return matches
     }
-}
 
+    private fun generateUnavailableResponse() = AiScholarResult(
+        answer = "Assalamu Alaikum. I could not get a reliable answer because the AI services are unavailable. Please try again later. For a personal religious ruling, consult a qualified scholar.",
+        source = "AI providers unavailable"
+    )
+}

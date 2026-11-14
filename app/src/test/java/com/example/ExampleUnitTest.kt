@@ -46,11 +46,6 @@ class ExampleUnitTest {
   }
 
   @Test
-  fun addition_isCorrect() {
-    assertEquals(4, 2 + 2)
-  }
-
-  @Test
   fun `verify offline Sahiwal schedule calculates all prayer times locally`() {
     val (schedule, items) = AladhanRepository.getSahiwalFallbackSchedule(PrayerApiProvider.ISLAMIC_FINDER)
     assertEquals("Sahiwal", schedule.city)
@@ -93,24 +88,6 @@ class ExampleUnitTest {
     assertTrue("Hanafi Asr must follow Dhuhr", hanafiAsr.timeMillis > dhuhr.timeMillis)
     assertTrue("Hanafi Asr must precede Maghrib", hanafiAsr.timeMillis < maghrib.timeMillis)
     assertTrue("Hanafi Asr should occur after Shafi Asr", hanafiAsr.timeMillis > shafiAsr.timeMillis)
-  }
-
-  @Test
-  fun `verify hardcoded login credentials logic for ryaan and ryan`() {
-    val validPass = "11221122"
-    val testCases = listOf("ryaan", "ryan", "Ryaan", "RYAN")
-    for (user in testCases) {
-      val isUserValid = user.trim().equals("ryaan", ignoreCase = true) || user.trim().equals("ryan", ignoreCase = true)
-      assertTrue("Failed for $user", isUserValid && validPass == "11221122")
-    }
-
-    val invalidUser = "other_user"
-    val isInvalidUser = invalidUser.trim().equals("ryaan", ignoreCase = true) || invalidUser.trim().equals("ryan", ignoreCase = true)
-    assertFalse(isInvalidUser)
-
-    val wrongPassword = "wrong_password"
-    val isPassValid = wrongPassword == "11221122"
-    assertFalse(isPassValid)
   }
 
   @Test
@@ -384,4 +361,3 @@ class ExampleUnitTest {
     assertTrue(ikhlas.ayahs[0].englishTranslation.contains("Say, \"He is Allah"))
   }
 }
-
