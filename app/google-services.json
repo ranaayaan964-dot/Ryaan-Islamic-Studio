@@ -12,7 +12,20 @@
           "package_name": "com.ayaan.islamicstudio"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "392374346970-esu6u0572ueuqi6hgujcev7kuf7afaqn.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ayaan.islamicstudio",
+            "certificate_hash": "f50834d79c2db1a1776a32b2420eeea04149240a"
+          }
+        },
+        {
+          "client_id": "392374346970-h0ch6ifusr5nlgnp4k0eqg0p4gog9pan.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyD3Cr99B-q1xeuep28aiRvGoFxwCjZCR1Q"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "392374346970-h0ch6ifusr5nlgnp4k0eqg0p4gog9pan.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
