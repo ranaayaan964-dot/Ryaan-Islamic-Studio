@@ -1,4 +1,4 @@
-package com.example.data.remote
+﻿package com.example.data.remote
 
 import android.content.Context
 import android.speech.tts.TextToSpeech
@@ -324,10 +324,10 @@ object GeminiApiClient {
 
                     lower.contains("zakat") ->
                         "**Fiqh Analysis of Zakat Calculation & Nisab**\n\n" +
-                        "• **Gold Nisab:** 85 grams of fine gold (24 karat).\n" +
-                        "• **Silver Nisab:** 595 grams of pure silver.\n" +
-                        "• **Hawl Requirement:** One full lunar year of unencumbered possession above the threshold.\n" +
-                        "• **Rate:** 2.5% (1/40th) of net Zakatable wealth as decreed in Surah At-Tawbah (9:60)."
+                        "â€¢ **Gold Nisab:** 85 grams of fine gold (24 karat).\n" +
+                        "â€¢ **Silver Nisab:** 595 grams of pure silver.\n" +
+                        "â€¢ **Hawl Requirement:** One full lunar year of unencumbered possession above the threshold.\n" +
+                        "â€¢ **Rate:** 2.5% (1/40th) of net Zakatable wealth as decreed in Surah At-Tawbah (9:60)."
 
                     else ->
                         "**Scholarly Jurisprudential Assessment (${role.displayModel})**\n\n" +
@@ -342,20 +342,20 @@ object GeminiApiClient {
                 when {
                     lower.contains("travel") ->
                         "**Dua for Travel (Safar):**\n\n" +
-                        "سُبْحَانَ الَّذِي سَخَّرَ لَنَا هَٰذَا وَمَا كُنَّا لَهُ مُقْرِنِينَ وَإِنَّا إِلَىٰ رَبِّنَا لَمُنْقَلِبُونَ\n\n" +
+                        "Ø³ÙØ¨Ù’Ø­ÙŽØ§Ù†ÙŽ Ø§Ù„ÙŽÙ‘Ø°ÙÙŠ Ø³ÙŽØ®ÙŽÙ‘Ø±ÙŽ Ù„ÙŽÙ†ÙŽØ§ Ù‡ÙŽÙ°Ø°ÙŽØ§ ÙˆÙŽÙ…ÙŽØ§ ÙƒÙÙ†ÙŽÙ‘Ø§ Ù„ÙŽÙ‡Ù Ù…ÙÙ‚Ù’Ø±ÙÙ†ÙÙŠÙ†ÙŽ ÙˆÙŽØ¥ÙÙ†ÙŽÙ‘Ø§ Ø¥ÙÙ„ÙŽÙ‰Ù° Ø±ÙŽØ¨ÙÙ‘Ù†ÙŽØ§ Ù„ÙŽÙ…ÙÙ†Ù’Ù‚ÙŽÙ„ÙØ¨ÙÙˆÙ†ÙŽ\n\n" +
                         "*Subhana-lladhi sakh-khara lana hadha wa ma kunna lahu muqrinin, wa inna ila Rabbina lamunqalibun.*\n\n" +
                         "**Meaning:** \"Glory be to Him Who has subjected this to us, whereas we could not have otherwise subdued it, and indeed to our Lord we shall return.\" [Surah Az-Zukhruf 43:13-14 | Sahih Muslim 1342]."
 
                     lower.contains("sleep") || lower.contains("waking") ->
                         "**Dua upon Waking Up:**\n\n" +
-                        "الْحَمْدُ لِلَّهِ الَّذِي أَحْيَانَا بَعْدَ مَا أَمَاتَنَا وَإِلَيْهِ النُّشُورُ\n\n" +
+                        "Ø§Ù„Ù’Ø­ÙŽÙ…Ù’Ø¯Ù Ù„ÙÙ„ÙŽÙ‘Ù‡Ù Ø§Ù„ÙŽÙ‘Ø°ÙÙŠ Ø£ÙŽØ­Ù’ÙŠÙŽØ§Ù†ÙŽØ§ Ø¨ÙŽØ¹Ù’Ø¯ÙŽ Ù…ÙŽØ§ Ø£ÙŽÙ…ÙŽØ§ØªÙŽÙ†ÙŽØ§ ÙˆÙŽØ¥ÙÙ„ÙŽÙŠÙ’Ù‡Ù Ø§Ù„Ù†ÙÙ‘Ø´ÙÙˆØ±Ù\n\n" +
                         "*Al-hamdu lillahil-ladhi ahyana ba'da ma amatana wa ilayhin-nushur.*\n\n" +
                         "**Source:** Sahih al-Bukhari 6312."
 
                     else ->
                         "**Instant Hadith & Dua Lookup (${role.displayModel}):**\n\n" +
-                        "• **Prophetic Teaching:** The Messenger of Allah (ﷺ) said: *\"The most beloved deeds to Allah are those that are consistent, even if they are few.\"* [Sahih al-Bukhari 6464, Sahih Muslim 783].\n" +
-                        "• **Key Takeaway:** Sincerity (*Ikhlas*) and consistency outweigh volume in worship."
+                        "â€¢ **Prophetic Teaching:** The Messenger of Allah (ï·º) said: *\"The most beloved deeds to Allah are those that are consistent, even if they are few.\"* [Sahih al-Bukhari 6464, Sahih Muslim 783].\n" +
+                        "â€¢ **Key Takeaway:** Sincerity (*Ikhlas*) and consistency outweigh volume in worship."
                 }
             }
 
@@ -431,7 +431,7 @@ class IslamicVoiceEngine(context: Context) {
             // Clean markdown stars/bullets for clean audio reading
             val cleanSpeech = text
                 .replace(Regex("[#*`_~]"), "")
-                .replace(Regex("📖\\s*"), "")
+                .replace(Regex("ðŸ“–\\s*"), "")
                 .replace(Regex("\\n+"), ". ")
                 .trim()
 
@@ -469,3 +469,4 @@ class IslamicVoiceEngine(context: Context) {
         isInitialized = false
     }
 }
+

@@ -1,4 +1,4 @@
-package com.example.data.remote
+﻿package com.example.data.remote
 
 import android.util.Base64
 import android.util.Log
@@ -106,3 +106,4 @@ object GeminiHifzClient {
     private fun offlineGuidance(surahName: String): String =
         "AI transcription is temporarily unavailable for $surahName. No recitation accuracy score was generated. Please try again later or review the recording with a qualified Quran teacher."
 }
+
