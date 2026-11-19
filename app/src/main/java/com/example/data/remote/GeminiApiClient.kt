@@ -79,10 +79,8 @@ data class GeminiChatResult(
 )
 
 /**
- * Specialized Chatbot Roles with dedicated system instructions and model routing.
- * - Complex Tasks: gemini-3.1-pro-preview (Deep reasoning, Fiqh, Usul al-Fiqh)
- * - General Tasks: gemini-3.5-flash (Spiritual companion, daily Quran & reflection)
- * - Fast Tasks: gemini-3.1-flash-lite (Instant Dua, prayer rules, rapid Hadith references)
+ * Specialized chatbot roles with stable compatibility model labels and dedicated instructions.
+ * The proxy maps those labels to currently supported Gemini models.
  */
 enum class GeminiChatbotRole(
     val title: String,
@@ -161,11 +159,8 @@ enum class GeminiChatbotRole(
 }
 
 /**
- * Real Gemini AI Client for Multi-Turn Islamic Scholar Chat.
- * Dynamically routes to:
- * - gemini-3.1-pro-preview for particularly complex tasks
- * - gemini-3.5-flash for general tasks
- * - gemini-3.1-flash-lite for tasks that should happen fast
+ * Gemini-compatible client for multi-turn Islamic scholar chat. Requests use the proxy,
+ * then the dual-provider router, and finally local guidance when providers are unavailable.
  */
 object GeminiApiClient {
     private const val TAG = "GeminiApiClient"
@@ -230,10 +225,15 @@ object GeminiApiClient {
                     append(prompt)
                 }
                 val routed = DualAiScholarEngine.askScholarWithSource(fullPrompt, role.systemPrompt)
+                val usedSimulation = routed.source in setOf(
+                    "Provider failover unavailable",
+                    "Offline Islamic guidance",
+                    "AI providers unavailable"
+                )
                 Result.success(
                     GeminiChatResult(
-                        reply = routed.answer,
-                        modelUsed = routed.source,
+                        reply = if (usedSimulation) generateScholarlySimulation(fullPrompt, role) else routed.answer,
+                        modelUsed = if (usedSimulation) "Offline guidance" else routed.source,
                         roleTitle = role.title,
                         taskComplexity = role.taskComplexity
                     )
@@ -306,7 +306,7 @@ object GeminiApiClient {
     suspend fun chat(
         conversationHistory: List<Pair<String, Boolean>>,
         prompt: String,
-        modelName: String = "gemini-3.5-flash"
+        modelName: String = "gemini-2.5-flash"
     ): Result<String> = withContext(Dispatchers.IO) {
         val turns = conversationHistory.map { ChatMessageTurn(it.first, it.second) }
         val role = GeminiChatbotRole.fromModel(modelName)

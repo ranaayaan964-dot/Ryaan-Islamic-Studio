@@ -98,14 +98,9 @@ import com.example.data.remote.IslamicVoiceEngine
 import com.example.ui.components.IslamicWatermarkBackground
 import com.example.ui.components.NeumorphicCard
 import com.example.ui.components.ProUpgradeDialog
-import com.example.ui.theme.CharcoalPrimary
 import com.example.ui.theme.CrimsonError
-import com.example.ui.theme.DeepRoyalEmerald
-import com.example.ui.theme.EmeraldSurfaceLight
+import com.example.ui.theme.LocalGlassTheme
 import com.example.ui.theme.PlatinumGold
-import com.example.ui.theme.PureWhite
-import com.example.ui.theme.RadiantEmerald
-import com.example.ui.theme.SlateMuted
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -114,10 +109,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Multi-Turn Chat Interface using Gemini Models:
- * - Particularly Complex Tasks: gemini-3.1-pro-preview (Grand Mufti & Jurist)
- * - General Tasks: gemini-3.5-flash (Spiritual Companion 'Noor')
- * - Fast Tasks: gemini-3.1-flash-lite (Instant Hadith & Dua Finder)
+ * Multi-turn Islamic scholar chat with role-based routing.
  *
  * Maintains full multi-turn conversation history across turns,
  * displays messages in a scrollable thread, and enforces dedicated
@@ -128,6 +120,7 @@ fun AiCompanionScreen(
     onOpenProActivation: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val glassTheme = LocalGlassTheme.current
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     val listState = rememberLazyListState()
@@ -160,7 +153,7 @@ fun AiCompanionScreen(
 
     var inputText by remember { mutableStateOf("") }
     var isThinking by remember { mutableStateOf(false) }
-    var thinkingModelName by remember { mutableStateOf(selectedRole.displayModel) }
+    var chatErrorMessage by remember { mutableStateOf<String?>(null) }
 
     // Ensure initial greeting exists in persistent Room database
     LaunchedEffect(Unit) {
@@ -169,13 +162,13 @@ fun AiCompanionScreen(
                 appDb.chatDao().insertChat(
                     ChatHistoryEntity(
                         messageText = "As-salamu alaykum wa Rahmatullah! I am your AI Islamic Companion. You can converse across multiple turns with specialized roles:\n\n" +
-                                "• 🧠 Grand Mufti (gemini-3.1-pro-preview) for complex Fiqh rulings & deep reasoning\n" +
-                                "• 🌟 Spiritual Companion (gemini-3.5-flash) for daily Quran reflection & guidance\n" +
-                                "• ⚡ Fast Finder (gemini-3.1-flash-lite) for instant Hadith & Duas\n\n" +
+                                "• 🧠 Grand Mufti for complex Fiqh questions and deep reasoning\n" +
+                                "• 🌟 Spiritual Companion for daily Quran reflection and guidance\n" +
+                                "• ⚡ Fast Finder for concise Hadith and Dua lookups\n\n" +
                                 "Ask any question to begin our conversation.",
                         isFromUser = false,
                         timestamp = System.currentTimeMillis(),
-                        scholarSource = "Gemini Companion (gemini-3.5-flash)",
+                        scholarSource = "AI Scholar",
                         isFatwa = false,
                         referencesJson = "Surah Al-Baqarah 2:186"
                     )
@@ -274,6 +267,7 @@ fun AiCompanionScreen(
         }
         val userPrompt = question.trim()
         inputText = ""
+        chatErrorMessage = null
 
         // Resolve active role (auto-detect if enabled)
         val activeRole = if (isAutoDetectMode) {
@@ -286,7 +280,6 @@ fun AiCompanionScreen(
         val recentMessages = messages.toList().takeLast(12)
         messages.add(ChatMessageTurn(userPrompt, true))
 
-        thinkingModelName = activeRole.displayModel
         isThinking = true
         voiceEngine.stop()
 
@@ -304,7 +297,10 @@ fun AiCompanionScreen(
                 }
                 val result = GeminiApiClient.multiTurnChat(recentMessages, userPrompt, activeRole)
                     .getOrElse { throw it }
-                thinkingModelName = result.modelUsed
+                if (isUnavailableAiResult(result.reply, result.modelUsed)) {
+                    chatErrorMessage = "AI Scholar is temporarily unavailable. Please try again later."
+                    return@launch
+                }
                 withContext(Dispatchers.IO) {
                     appDb.chatDao().insertChat(
                         ChatHistoryEntity(
@@ -319,8 +315,8 @@ fun AiCompanionScreen(
                 messages.add(ChatMessageTurn(result.reply, false))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (e: Exception) {
-                Toast.makeText(context, "Chat query error: ${e.message}", Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {
+                chatErrorMessage = "I couldn't reach the AI Scholar. Check your connection and try again."
             } finally {
                 isThinking = false
             }
@@ -331,7 +327,9 @@ fun AiCompanionScreen(
         modifier = Modifier
             .fillMaxSize()
             .testTag("ai_companion_screen")
-            .imePadding()
+            .imePadding(),
+        backgroundColor = glassTheme.background,
+        watermarkColor = glassTheme.accentEmerald
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
@@ -343,7 +341,7 @@ fun AiCompanionScreen(
                     .padding(horizontal = 16.dp, vertical = 6.dp),
                 elevation = 6.dp,
                 cornerRadius = 20.dp,
-                backgroundColor = PureWhite
+                backgroundColor = glassTheme.glassCardBackground
             ) {
                 Column(
                     modifier = Modifier
@@ -360,8 +358,8 @@ fun AiCompanionScreen(
                                 modifier = Modifier
                                     .size(38.dp)
                                     .clip(CircleShape)
-                                    .background(EmeraldSurfaceLight)
-                                    .border(1.5.dp, PlatinumGold, CircleShape),
+                                    .background(glassTheme.chipBackground)
+                                    .border(1.5.dp, glassTheme.accentGold, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -371,7 +369,7 @@ fun AiCompanionScreen(
                                         GeminiChatbotRole.GENERAL_COMPANION -> Icons.Default.AutoAwesome
                                     },
                                     contentDescription = selectedRole.title,
-                                    tint = DeepRoyalEmerald,
+                                    tint = glassTheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -384,27 +382,27 @@ fun AiCompanionScreen(
                                         text = selectedRole.title,
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = DeepRoyalEmerald
+                                        color = glassTheme.textPrimary
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(EmeraldSurfaceLight)
+                                            .background(glassTheme.chipBackground)
                                             .padding(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
                                         Text(
-                                            text = selectedRole.displayModel,
+                                            text = "AI Scholar",
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = RadiantEmerald
+                                            color = glassTheme.accentEmerald
                                         )
                                     }
                                 }
                                 Text(
                                     text = "${selectedRole.shortRole} • ${selectedRole.taskComplexity}",
                                     fontSize = 10.5.sp,
-                                    color = SlateMuted
+                                    color = glassTheme.textSecondary
                                 )
                             }
                         }
@@ -417,7 +415,7 @@ fun AiCompanionScreen(
                                 Icon(
                                     imageVector = Icons.Default.Info,
                                     contentDescription = "Role Details",
-                                    tint = SlateMuted,
+                                    tint = glassTheme.textMuted,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -431,7 +429,7 @@ fun AiCompanionScreen(
                                 Icon(
                                     imageVector = Icons.Default.DeleteSweep,
                                     contentDescription = "Clear History",
-                                    tint = SlateMuted,
+                                    tint = glassTheme.textMuted,
                                     modifier = Modifier.size(19.dp)
                                 )
                             }
@@ -440,14 +438,14 @@ fun AiCompanionScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Role Selector Tabs: Complex (3.1 Pro), General (3.5 Flash), Fast (3.1 Flash Lite)
+                    // Choose the response style; provider/model routing stays behind the proxy.
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         RoleSelectorPill(
                             title = "Complex",
-                            model = "3.1 Pro",
+                            model = "Depth",
                             icon = Icons.Default.Psychology,
                             isSelected = selectedRole == GeminiChatbotRole.COMPLEX_JURIST && !isAutoDetectMode,
                             onClick = {
@@ -461,7 +459,7 @@ fun AiCompanionScreen(
 
                         RoleSelectorPill(
                             title = "General",
-                            model = "3.5 Flash",
+                            model = "Daily",
                             icon = Icons.Default.AutoAwesome,
                             isSelected = selectedRole == GeminiChatbotRole.GENERAL_COMPANION && !isAutoDetectMode,
                             onClick = {
@@ -475,7 +473,7 @@ fun AiCompanionScreen(
 
                         RoleSelectorPill(
                             title = "Fast",
-                            model = "Flash-Lite",
+                            model = "Quick",
                             icon = Icons.Default.Bolt,
                             isSelected = selectedRole == GeminiChatbotRole.FAST_FINDER && !isAutoDetectMode,
                             onClick = {
@@ -537,7 +535,20 @@ fun AiCompanionScreen(
 
                 if (isThinking) {
                     item {
-                        ThinkingBubble(modelName = thinkingModelName)
+                        ThinkingBubble()
+                    }
+                }
+                chatErrorMessage?.let { message ->
+                    item {
+                        Text(
+                            text = message,
+                            color = glassTheme.textSecondary,
+                            fontSize = 12.sp,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(glassTheme.glassCardBackground)
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
                     }
                 }
             }
@@ -551,8 +562,8 @@ fun AiCompanionScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
-                            .background(PureWhite)
-                            .border(1.dp, PlatinumGold.copy(alpha = 0.45f), RoundedCornerShape(16.dp))
+                            .background(glassTheme.surface)
+                            .border(1.dp, glassTheme.chipBorder, RoundedCornerShape(16.dp))
                             .clickable { sendUserMessage(prompt) }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
@@ -560,7 +571,7 @@ fun AiCompanionScreen(
                             text = prompt,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium,
-                            color = DeepRoyalEmerald
+                            color = glassTheme.textPrimary
                         )
                     }
                 }
@@ -573,7 +584,7 @@ fun AiCompanionScreen(
                     .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 10.dp),
                 elevation = 8.dp,
                 cornerRadius = 24.dp,
-                backgroundColor = PureWhite
+                backgroundColor = glassTheme.glassCardBackground
             ) {
                 Row(
                     modifier = Modifier
@@ -595,7 +606,7 @@ fun AiCompanionScreen(
                         Icon(
                             imageVector = if (isListeningToSpeech) Icons.Default.MicOff else Icons.Default.Mic,
                             contentDescription = "Voice Input",
-                            tint = if (isListeningToSpeech) CrimsonError else DeepRoyalEmerald
+                            tint = if (isListeningToSpeech) CrimsonError else glassTheme.primary
                         )
                     }
 
@@ -611,7 +622,7 @@ fun AiCompanionScreen(
                                     GeminiChatbotRole.GENERAL_COMPANION -> "Ask Noor for spiritual guidance..."
                                 },
                                 fontSize = 12.5.sp,
-                                color = SlateMuted
+                                color = glassTheme.textMuted
                             )
                         },
                         modifier = Modifier
@@ -630,12 +641,12 @@ fun AiCompanionScreen(
                         ),
                         shape = RoundedCornerShape(20.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = RadiantEmerald,
-                            unfocusedBorderColor = Color(0xFFE2E8F0),
-                            focusedContainerColor = EmeraldSurfaceLight.copy(alpha = 0.3f),
-                            unfocusedContainerColor = PureWhite,
-                            focusedTextColor = CharcoalPrimary,
-                            unfocusedTextColor = CharcoalPrimary
+                            focusedBorderColor = glassTheme.primary,
+                            unfocusedBorderColor = glassTheme.chipBorder,
+                            focusedContainerColor = glassTheme.surface,
+                            unfocusedContainerColor = glassTheme.surface,
+                            focusedTextColor = glassTheme.textPrimary,
+                            unfocusedTextColor = glassTheme.textPrimary
                         ),
                         singleLine = false,
                         maxLines = 4
@@ -655,14 +666,14 @@ fun AiCompanionScreen(
                             .size(44.dp)
                             .clip(CircleShape)
                             .background(
-                                if (inputText.isNotBlank() && !isThinking) DeepRoyalEmerald else Color(0xFFE2E8F0)
+                                if (inputText.isNotBlank() && !isThinking) glassTheme.primary else glassTheme.chipBackground
                             )
                             .testTag("chat_send_button")
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Send",
-                            tint = if (inputText.isNotBlank() && !isThinking) PureWhite else SlateMuted,
+                            tint = if (inputText.isNotBlank() && !isThinking) glassTheme.onPrimary else glassTheme.textMuted,
                             modifier = Modifier.size(19.dp)
                         )
                     }
@@ -677,9 +688,9 @@ fun AiCompanionScreen(
             onDismissRequest = { showRoleInfoDialog = false },
             title = {
                 Text(
-                    text = "${selectedRole.title} (${selectedRole.displayModel})",
+                    text = selectedRole.title,
                     fontWeight = FontWeight.Bold,
-                    color = DeepRoyalEmerald,
+                    color = glassTheme.textPrimary,
                     fontSize = 16.sp
                 )
             },
@@ -688,7 +699,7 @@ fun AiCompanionScreen(
                     Text(
                         text = "Task Category: ${selectedRole.taskComplexity}",
                         fontWeight = FontWeight.SemiBold,
-                        color = RadiantEmerald,
+                        color = glassTheme.primary,
                         fontSize = 13.sp
                     )
                     Spacer(modifier = Modifier.height(6.dp))
@@ -696,34 +707,34 @@ fun AiCompanionScreen(
                         text = "Active System Instruction:",
                         fontWeight = FontWeight.Medium,
                         fontSize = 12.sp,
-                        color = CharcoalPrimary
+                        color = glassTheme.textPrimary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .background(EmeraldSurfaceLight)
+                            .background(glassTheme.surface)
                             .padding(8.dp)
                     ) {
                         Text(
                             text = selectedRole.systemPrompt,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
-                            color = CharcoalPrimary
+                            color = glassTheme.textPrimary
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "• Complex tasks use gemini-3.1-pro-preview\n• General tasks use gemini-3.5-flash\n• Fast tasks use gemini-3.1-flash-lite",
+                        text = "Complex questions use the jurist role; general guidance uses Noor; quick lookups use the fast-finder role.",
                         fontSize = 11.sp,
-                        color = SlateMuted
+                        color = glassTheme.textMuted
                     )
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showRoleInfoDialog = false }) {
-                    Text("Close", color = DeepRoyalEmerald, fontWeight = FontWeight.Bold)
+                    Text("Close", color = glassTheme.primary, fontWeight = FontWeight.Bold)
                 }
             }
         )
@@ -752,7 +763,7 @@ fun AiCompanionScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearConfirmDialog = false }) {
-                    Text("Cancel", color = SlateMuted)
+                    Text("Cancel", color = glassTheme.textMuted)
                 }
             }
         )
@@ -779,13 +790,14 @@ fun RoleSelectorPill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val glassTheme = LocalGlassTheme.current
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(if (isSelected) DeepRoyalEmerald else EmeraldSurfaceLight.copy(alpha = 0.6f))
+            .background(if (isSelected) glassTheme.primary else glassTheme.chipBackground)
             .border(
                 1.dp,
-                if (isSelected) PlatinumGold else Color.Transparent,
+                if (isSelected) glassTheme.accentGold else glassTheme.chipBorder,
                 RoundedCornerShape(12.dp)
             )
             .clickable(onClick = onClick)
@@ -799,7 +811,7 @@ fun RoleSelectorPill(
             Icon(
                 imageVector = icon,
                 contentDescription = title,
-                tint = if (isSelected) PureWhite else DeepRoyalEmerald,
+                tint = if (isSelected) glassTheme.onPrimary else glassTheme.textPrimary,
                 modifier = Modifier.size(13.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
@@ -808,12 +820,12 @@ fun RoleSelectorPill(
                     text = title,
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (isSelected) PureWhite else DeepRoyalEmerald
+                    color = if (isSelected) glassTheme.onPrimary else glassTheme.textPrimary
                 )
                 Text(
                     text = model,
                     fontSize = 8.sp,
-                    color = if (isSelected) PlatinumGold else SlateMuted
+                    color = if (isSelected) glassTheme.accentGold else glassTheme.textMuted
                 )
             }
         }
@@ -827,6 +839,7 @@ fun ChatBubbleItem(
     onSpeakToggle: () -> Unit,
     onCopyText: () -> Unit
 ) {
+    val glassTheme = LocalGlassTheme.current
     val isUser = chat.isUser
     val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
 
@@ -839,11 +852,11 @@ fun ChatBubbleItem(
                 modifier = Modifier
                     .size(28.dp)
                     .clip(CircleShape)
-                    .background(EmeraldSurfaceLight)
+                    .background(glassTheme.surface)
                     .border(1.dp, PlatinumGold, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = "☪", fontSize = 12.sp, color = DeepRoyalEmerald)
+                Text(text = "☪", fontSize = 12.sp, color = LocalGlassTheme.current.textPrimary)
             }
             Spacer(modifier = Modifier.width(8.dp))
         }
@@ -873,10 +886,10 @@ fun ChatBubbleItem(
                             bottomEnd = if (isUser) 4.dp else 16.dp
                         )
                     )
-                    .background(if (isUser) DeepRoyalEmerald else PureWhite)
+                    .background(if (isUser) glassTheme.primary else glassTheme.surface)
                     .border(
                         1.dp,
-                        if (isUser) DeepRoyalEmerald else Color(0x24D4AF37),
+                        if (isUser) glassTheme.primary else glassTheme.glassCardStrokeColor,
                         RoundedCornerShape(
                             topStart = 16.dp,
                             topEnd = 16.dp,
@@ -897,14 +910,14 @@ fun ChatBubbleItem(
                                 text = "Noor AI",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = PlatinumGold
+                                color = glassTheme.accentGold
                             )
                             Row {
                                 IconButton(onClick = onSpeakToggle, modifier = Modifier.size(24.dp)) {
                                     Icon(
                                         imageVector = if (isSpeaking) Icons.Default.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                                         contentDescription = "Speak",
-                                        tint = if (isSpeaking) DeepRoyalEmerald else SlateMuted,
+                                        tint = if (isSpeaking) glassTheme.primary else glassTheme.textMuted,
                                         modifier = Modifier.size(15.dp)
                                     )
                                 }
@@ -912,7 +925,7 @@ fun ChatBubbleItem(
                                     Icon(
                                         imageVector = Icons.Default.ContentCopy,
                                         contentDescription = "Copy",
-                                        tint = SlateMuted,
+                                        tint = glassTheme.textMuted,
                                         modifier = Modifier.size(14.dp)
                                     )
                                 }
@@ -925,7 +938,7 @@ fun ChatBubbleItem(
                         text = chat.text,
                         fontSize = 13.5.sp,
                         lineHeight = 20.sp,
-                        color = if (isUser) PureWhite else CharcoalPrimary
+                        color = if (isUser) glassTheme.onPrimary else glassTheme.textPrimary
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
@@ -933,7 +946,7 @@ fun ChatBubbleItem(
                     Text(
                         text = timeStr,
                         fontSize = 9.sp,
-                        color = if (isUser) PureWhite.copy(alpha = 0.7f) else SlateMuted,
+                        color = if (isUser) glassTheme.onPrimary.copy(alpha = 0.72f) else glassTheme.textMuted,
                         modifier = Modifier.align(if (isUser) Alignment.End else Alignment.Start)
                     )
                 }
@@ -943,7 +956,8 @@ fun ChatBubbleItem(
 }
 
 @Composable
-fun ThinkingBubble(modelName: String) {
+fun ThinkingBubble() {
+    val glassTheme = LocalGlassTheme.current
     val infiniteTransition = rememberInfiniteTransition(label = "thinking")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 0.85f,
@@ -963,18 +977,18 @@ fun ThinkingBubble(modelName: String) {
             modifier = Modifier
                 .size(28.dp)
                 .clip(CircleShape)
-                .background(EmeraldSurfaceLight)
-                .border(1.dp, PlatinumGold, CircleShape),
+                .background(glassTheme.chipBackground)
+                .border(1.dp, glassTheme.accentGold, CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Text(text = "☪", fontSize = 12.sp, color = DeepRoyalEmerald)
+            Text(text = "☪", fontSize = 12.sp, color = glassTheme.textPrimary)
         }
         Spacer(modifier = Modifier.width(8.dp))
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(16.dp))
-                .background(PureWhite)
-                .border(1.dp, PlatinumGold.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                .background(glassTheme.surface)
+                .border(1.dp, glassTheme.glassCardStrokeColor, RoundedCornerShape(16.dp))
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -983,17 +997,25 @@ fun ThinkingBubble(modelName: String) {
                         .size(13.dp)
                         .scale(pulseScale),
                     strokeWidth = 2.dp,
-                    color = RadiantEmerald
+                    color = glassTheme.primary
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Gemini ($modelName) is reasoning...",
+                    text = "Noor is preparing your response...",
                     fontSize = 11.5.sp,
-                    color = SlateMuted
+                    color = glassTheme.textSecondary
                 )
             }
         }
     }
+}
+
+private fun isUnavailableAiResult(reply: String, source: String): Boolean {
+    val technicalFailure = Regex(
+        "provider failover unavailable|HTTP\\s+\\d{3}|AI providers are unavailable|could not get a reliable answer",
+        RegexOption.IGNORE_CASE
+    )
+    return technicalFailure.containsMatchIn(reply) || technicalFailure.containsMatchIn(source)
 }
 
 private fun startSpeechListening(

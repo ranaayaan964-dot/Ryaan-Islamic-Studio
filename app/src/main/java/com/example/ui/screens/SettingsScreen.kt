@@ -24,12 +24,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -40,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -58,27 +56,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.database.AppDatabase
-import com.example.data.repository.SettingsRepository
 import com.example.data.repository.ProSubscriptionRepository
+import com.example.data.repository.SettingsRepository
 import com.example.security.SessionManager
 import com.example.util.BatteryOptimizationHelper
-import com.example.ui.theme.CharcoalPrimary
-import com.example.ui.theme.CrimsonError
-import com.example.ui.theme.DeepRoyalEmerald
-import com.example.ui.theme.EmeraldMint
-import com.example.ui.theme.GoldSecondary
 import com.example.ui.theme.LocalGlassTheme
-import com.example.ui.theme.PearlBackground
-import com.example.ui.theme.PlatinumGold
-import com.example.ui.theme.PureWhite
-import com.example.ui.theme.SlateMuted
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.text.DateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * PRODUCTION SETTINGS & SECURITY SCREEN
@@ -86,13 +83,6 @@ import kotlinx.coroutines.withContext
  * When user explicitly clicks "Logout", sets is_logged_in = false
  * BUT keeps the cached_username so next time they only have to enter their password.
  */
-private data class ProfileState(
-    val fullName: String,
-    val role: String,
-    val username: String,
-    val rememberMe: Boolean
-)
-
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
@@ -102,28 +92,62 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val glassTheme = LocalGlassTheme.current
+    val themeTextPrimary = glassTheme.textPrimary
+    val themeTextMuted = glassTheme.textMuted
+    val themeSurface = glassTheme.surface
+    val themePrimary = glassTheme.primary
+    val themeAccent = glassTheme.accentGold
+    val themeError = MaterialTheme.colorScheme.error
     val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
     val proStatus by proRepository.proStatusFlow.collectAsStateWithLifecycle()
-    var cachedUsername by remember { mutableStateOf("") }
-    var profileFullName by remember { mutableStateOf("Ayaan") }
-    var profileRole by remember { mutableStateOf("System Administrator") }
+    val userDao = remember(context) { AppDatabase.getInstance(context).userDao() }
+    val user by userDao.getCurrentUserFlow().collectAsStateWithLifecycle(initialValue = null)
+    val firebaseUser = FirebaseAuth.getInstance().currentUser
     var isRememberMe by remember { mutableStateOf(true) }
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
+    var editFullName by remember { mutableStateOf("") }
+    var editUsername by remember { mutableStateOf("") }
+    var fullNameError by remember { mutableStateOf<String?>(null) }
+    var usernameError by remember { mutableStateOf<String?>(null) }
+    var profileSaveError by remember { mutableStateOf<String?>(null) }
+    var isSavingProfile by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        val profile = withContext(Dispatchers.IO) {
-            val sessionManager = SessionManager.getInstance(context)
-            val user = AppDatabase.getInstance(context).userDao().getCurrentUser()
-            val username = user?.username?.ifBlank { sessionManager.getCachedUsername() }?.ifBlank { "ayaan" } ?: "ayaan"
-            val fullName = user?.fullName?.ifBlank { "Ayaan" } ?: "Ayaan"
-            val role = user?.role?.ifBlank { "System Administrator" } ?: "System Administrator"
-            ProfileState(fullName, role, username, sessionManager.isRememberMe())
+        isRememberMe = withContext(Dispatchers.IO) {
+            SessionManager.getInstance(context).isRememberMe()
         }
-        profileFullName = profile.fullName
-        profileRole = profile.role
-        cachedUsername = profile.username
-        isRememberMe = profile.rememberMe
     }
+
+    val profileName = user?.fullName?.takeIf(String::isNotBlank) ?: "Name not set"
+    val profileUsername = user?.username?.takeIf(String::isNotBlank) ?: "Username not set"
+    val profileEmail = firebaseUser?.email?.takeIf(String::isNotBlank)
+        ?: user?.email?.takeIf(String::isNotBlank)
+        ?: "Email not available"
+    val providerId = user?.authProvider?.takeIf(String::isNotBlank)
+        ?: firebaseUser?.providerData?.firstOrNull { it.providerId != "firebase" }?.providerId.orEmpty()
+    val providerLabel = when (providerId.lowercase(Locale.ROOT)) {
+        "google", "google.com" -> "Google"
+        "password", "email" -> "Email"
+        "phone", "phone number" -> "Phone"
+        else -> providerId.takeIf(String::isNotBlank)?.replaceFirstChar { it.uppercase() } ?: "Not available"
+    }
+    val createdAt = user?.createdAt?.takeIf { it > 0L }
+        ?: user?.loginTimestamp?.takeIf { it > 0L }
+    val memberSince = createdAt?.let {
+        DateFormat.getDateInstance(DateFormat.MEDIUM, Locale.getDefault()).format(Date(it))
+    } ?: "Not available"
+    val subscriptionLabel = if (proStatus.isProActive) {
+        proStatus.activePlanName
+    } else {
+        user?.subscriptionPlan?.takeIf(String::isNotBlank)?.replace('_', ' ') ?: "Free"
+    }
+    val initials = profileName
+        .split(Regex("\\s+"))
+        .filter(String::isNotBlank)
+        .take(2)
+        .joinToString("") { it.first().uppercaseChar().toString() }
+        .ifBlank { "?" }
 
     val handleLogoutClick: () -> Unit = {
         scope.launch {
@@ -133,7 +157,7 @@ fun SettingsScreen(
                 sessionManager.logout()
 
                 // 2. Clear Room active session
-                AppDatabase.getInstance(context).userDao().logout()
+                userDao.logout()
 
                 // 3. Clear DataStore logged in flag
                 SettingsRepository.getInstance(context).setLoggedIn(false)
@@ -145,7 +169,7 @@ fun SettingsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(PearlBackground)
+            .background(glassTheme.background)
             .statusBarsPadding()
             .navigationBarsPadding()
             .testTag("settings_screen")
@@ -168,14 +192,14 @@ fun SettingsScreen(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(CircleShape)
-                        .background(PureWhite)
-                        .border(1.dp, Color(0x20000000), CircleShape)
+                        .background(themeSurface)
+                        .border(1.dp, glassTheme.glassCardStrokeColor, CircleShape)
                         .testTag("settings_back_button")
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = CharcoalPrimary
+                        tint = themeTextPrimary
                     )
                 }
 
@@ -186,23 +210,23 @@ fun SettingsScreen(
                         text = "Security & Settings",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
-                        color = CharcoalPrimary
+                        color = themeTextPrimary
                     )
                     Text(
                         text = "Session control & credential caching",
                         fontSize = 12.sp,
-                        color = SlateMuted
+                        color = themeTextMuted
                     )
                 }
             }
 
-            // User Profile & Authentication Status Card
+            // Account profile
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = PureWhite),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = themeSurface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
@@ -212,20 +236,20 @@ fun SettingsScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(54.dp)
+                                .size(62.dp)
                                 .clip(CircleShape)
                                 .background(
                                     Brush.linearGradient(
-                                        listOf(DeepRoyalEmerald, EmeraldMint)
+                                        listOf(themePrimary, glassTheme.accentEmerald)
                                     )
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.AccountCircle,
-                                contentDescription = "Profile",
-                                tint = PureWhite,
-                                modifier = Modifier.size(36.dp)
+                            Text(
+                                text = initials,
+                                color = glassTheme.onPrimary,
+                                fontSize = 21.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
 
@@ -233,38 +257,55 @@ fun SettingsScreen(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = profileFullName.ifBlank { "Ayaan" },
-                                fontSize = 16.sp,
+                                text = profileName,
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = CharcoalPrimary
+                                color = themeTextPrimary
                             )
                             Text(
-                                text = profileRole.ifBlank { "System Administrator" },
+                                text = " @$profileUsername",
                                 fontSize = 12.sp,
-                                color = DeepRoyalEmerald,
+                                color = themePrimary,
                                 fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Logged in as @${cachedUsername.ifBlank { "ayaan" }}",
-                                fontSize = 11.5.sp,
-                                color = SlateMuted
                             )
                         }
 
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFFECFDF5))
-                                .border(1.dp, Color(0x3010B981), RoundedCornerShape(8.dp))
+                                .background(glassTheme.chipBackground)
+                                .border(1.dp, glassTheme.chipBorder, RoundedCornerShape(8.dp))
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = "ACTIVE",
+                                text = user?.role?.takeIf(String::isNotBlank)?.uppercase(Locale.ROOT) ?: "ACCOUNT",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = DeepRoyalEmerald
+                                color = themePrimary
                             )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+                    ProfileDetailRow("Email", profileEmail, themeTextPrimary, themeTextMuted)
+                    ProfileDetailRow("Provider", providerLabel, themeTextPrimary, themeTextMuted)
+                    ProfileDetailRow("Plan", subscriptionLabel, themeTextPrimary, themeTextMuted)
+                    ProfileDetailRow("Member since", memberSince, themeTextPrimary, themeTextMuted)
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = {
+                            editFullName = user?.fullName.orEmpty()
+                            editUsername = user?.username.orEmpty()
+                            fullNameError = null
+                            usernameError = null
+                            profileSaveError = null
+                            showEditProfileDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = user != null
+                    ) {
+                        Text("Edit profile", color = themePrimary)
                     }
                 }
             }
@@ -272,17 +313,17 @@ fun SettingsScreen(
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable(onClick = onOpenProActivation),
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = if (proStatus.isProActive) Color(0xFFE7F8F0) else PureWhite),
+                colors = CardDefaults.cardColors(containerColor = if (proStatus.isProActive) glassTheme.chipBackground else themeSurface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
             ) {
                 Column(Modifier.fillMaxWidth().padding(18.dp)) {
                     Text(
-                        if (proStatus.isProActive) "👑 ${proStatus.activePlanName} • ${proStatus.remainingDays} days left"
-                        else "👑 FREE PLAN — Tap to Activate Pro Key",
-                        color = DeepRoyalEmerald,
+                        if (proStatus.isProActive) "♛ ${proStatus.activePlanName} • ${proStatus.remainingDays} days left"
+                        else "♛ FREE PLAN — Tap to Activate Pro Key",
+                        color = themePrimary,
                         fontWeight = FontWeight.Bold
                     )
-                    Text("Unlimited access and no ads with Ayaan Pro", color = SlateMuted, fontSize = 12.sp)
+                    Text("Unlimited access and no ads with Ayaan Pro", color = themeTextMuted, fontSize = 12.sp)
                 }
             }
 

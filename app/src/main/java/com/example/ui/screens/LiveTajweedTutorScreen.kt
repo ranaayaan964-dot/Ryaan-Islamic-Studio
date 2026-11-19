@@ -66,7 +66,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.live.GeminiLiveTajweedTutor
+import com.example.util.WordEvaluationStatus
 import com.example.ui.theme.DarkNavyBackground
 import com.example.ui.theme.EmeraldAccent
 import com.example.ui.theme.GoldSecondary
@@ -78,6 +82,7 @@ fun LiveTajweedTutorScreen(
     val context = LocalContext.current
     val tutor = remember { GeminiLiveTajweedTutor(context) }
     val tutorState by tutor.state.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var selectedSurah by remember { mutableStateOf("Surah Al-Fatiha") }
     var hasAudioPermission by remember {
@@ -96,9 +101,14 @@ fun LiveTajweedTutorScreen(
         }
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(lifecycleOwner, tutor) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) tutor.stopSession()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
-            tutor.stopSession()
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            tutor.release()
         }
     }
 
@@ -152,7 +162,7 @@ fun LiveTajweedTutorScreen(
                         letterSpacing = 1.sp
                     )
                     Text(
-                        text = "Gemini Multimodal Live AI",
+                        text = "Arabic Speech Recognition",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -171,7 +181,7 @@ fun LiveTajweedTutorScreen(
                         .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Text(
-                        text = if (tutorState.isStreamingAudio) "● WEBSOCKET LIVE" else "○ STANDBY",
+                        text = if (tutorState.isStreamingAudio) "● LISTENING" else "○ STANDBY",
                         color = if (tutorState.isStreamingAudio) Color(0xFF6EE7B7) else Color(0xFFFBBF24),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
@@ -182,27 +192,33 @@ fun LiveTajweedTutorScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             // Surah Selection Chips
-            val surahOptions = listOf("Surah Al-Fatiha", "Surah Al-Ikhlas", "Ayat Al-Kursi", "Surah Al-Mulk")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                surahOptions.take(3).forEach { surah ->
-                    FilterChip(
-                        selected = selectedSurah == surah,
-                        onClick = {
-                            selectedSurah = surah
-                            if (tutorState.isStreamingAudio) {
-                                tutor.stopSession()
-                                tutor.startSession(surah)
-                            }
-                        },
-                        label = { Text(surah, fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = EmeraldAccent.copy(alpha = 0.25f),
-                            selectedLabelColor = EmeraldAccent
-                        )
-                    )
+            val surahOptions = listOf("Surah Al-Fatiha", "Surah Al-Ikhlas", "Ayat Al-Kursi", "Surah Al-Mulk (1–5)")
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                surahOptions.chunked(2).forEach { surahRow ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        surahRow.forEach { surah ->
+                            FilterChip(
+                                modifier = Modifier.weight(1f),
+                                selected = selectedSurah == surah,
+                                onClick = {
+                                    selectedSurah = surah
+                                    if (tutorState.isStreamingAudio) {
+                                        tutor.stopSession()
+                                        tutor.startSession(surah)
+                                    }
+                                },
+                                label = { Text(surah, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = EmeraldAccent.copy(alpha = 0.25f),
+                                    selectedLabelColor = EmeraldAccent
+                                )
+                            )
+                        }
+                        if (surahRow.size == 1) Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
 
@@ -270,7 +286,7 @@ fun LiveTajweedTutorScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = if (tutorState.isStreamingAudio) "Listening in Real-Time (16kHz PCM)" else "Tap Microphone to Start Live Recitation",
+                text = if (tutorState.isStreamingAudio) "Listening for Arabic recitation in real time" else "Tap Microphone to Start Live Recitation",
                 color = if (tutorState.isStreamingAudio) Color(0xFF6EE7B7) else Color(0xFF94A3B8),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold
@@ -326,7 +342,7 @@ fun LiveTajweedTutorScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "LIVE VOCAL INTERVENTION",
+                                text = if (tutorState.isTutorSpeaking) "GENTLE VOICE GUIDANCE" else "RECITATION FEEDBACK",
                                 color = GoldSecondary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
@@ -338,7 +354,7 @@ fun LiveTajweedTutorScreen(
 
                         Text(
                             text = tutorState.latestInterruptionNote
-                                ?: "Notice: Throat letter 'Haa' (ح) articulated from the middle of the throat, rather than chest letter 'Haa' (هـ). Listen to the correction.",
+                                ?: "A gentle pronunciation reminder will appear here when needed.",
                             color = Color.White,
                             fontSize = 13.sp,
                             lineHeight = 19.sp
@@ -355,7 +371,7 @@ fun LiveTajweedTutorScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Synthesized Voice Playing (24kHz AudioTrack)",
+                                text = if (tutorState.isTutorSpeaking) "Arabic voice guidance is speaking" else "Local Arabic voice guidance",
                                 color = Color(0xFF6EE7B7),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium
@@ -394,6 +410,51 @@ fun LiveTajweedTutorScreen(
                         fontSize = 13.sp,
                         lineHeight = 20.sp
                     )
+
+                    if (tutorState.evaluatedWords.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "PASSAGE WORD CHECK",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        tutorState.evaluatedWords.chunked(3).forEach { wordRow ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                wordRow.forEach { word ->
+                                    val wordColor = when (word.status) {
+                                        WordEvaluationStatus.CORRECT -> Color(0xFF10B981)
+                                        WordEvaluationStatus.MISPRONOUNCED -> Color(0xFFEF4444)
+                                        WordEvaluationStatus.MISSED -> Color(0xFFF59E0B)
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(wordColor.copy(alpha = 0.16f))
+                                            .border(1.dp, wordColor.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(
+                                            text = word.originalWord,
+                                            color = wordColor,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(5.dp))
+                        }
+                        Text(
+                            text = "Passage match: ${tutorState.accuracyPercentage}%",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 

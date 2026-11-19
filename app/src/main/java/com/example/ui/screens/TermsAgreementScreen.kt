@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -31,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalConfiguration
 import com.example.ui.theme.DeepRoyalEmerald
 import com.example.ui.theme.PearlBackground
 import com.example.ui.theme.PlatinumGold
@@ -40,24 +43,28 @@ import com.example.ui.theme.PureWhite
 fun TermsAgreementScreen(onAgree: () -> Unit) {
     var accepted by remember { mutableStateOf(false) }
     BackHandler(enabled = true) {}
+    val configuration = LocalConfiguration.current
+    val horizontalPadding = if (configuration.screenWidthDp < 380) 16.dp else 24.dp
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .safeDrawingPadding()
             .background(
                 Brush.verticalGradient(
                     listOf(PearlBackground, PureWhite, MaterialTheme.colorScheme.surface)
                 )
             )
-            .padding(24.dp),
+            .padding(horizontal = horizontalPadding, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 640.dp)
                 .verticalScroll(rememberScrollState())
                 .background(PureWhite, RoundedCornerShape(24.dp))
-                .padding(24.dp),
+                .padding(if (configuration.screenHeightDp < 700) 18.dp else 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(

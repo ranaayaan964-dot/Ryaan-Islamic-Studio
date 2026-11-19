@@ -1,7 +1,9 @@
 package com.example
 
+import android.app.Activity
 import android.Manifest
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Build
@@ -74,6 +76,8 @@ import com.example.service.audio.QuranAudioController
 import com.example.service.location.LocationServicesWrapper
 import com.example.ui.components.UpdateDialog
 import com.example.ui.components.WilmsAiPromotionDialog
+import com.example.ui.components.ads.UnityAdsController
+import com.example.ui.components.ads.UnityInterstitialManager
 import com.example.ui.components.audio.QuranPlaybackControlBar
 import com.example.ui.screens.AiCompanionScreen
 import com.example.ui.screens.ArabicScannerScreen
@@ -107,6 +111,7 @@ import com.example.security.SessionManager
 import com.example.util.UpdateViewModel
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -142,6 +147,15 @@ enum class EnterpriseFeatureScreen {
     USER_ADMIN_INBOX,
     TASBEEH,
     PRO_ACTIVATION
+}
+
+private fun Context.findActivity(): Activity? {
+    var current = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext ?: return null
+    }
+    return current as? Activity
 }
 
 class MainActivity : ComponentActivity() {
@@ -201,18 +215,36 @@ class MainActivity : ComponentActivity() {
             val proRepository = remember { ProSubscriptionRepository.getInstance(this@MainActivity) }
             val proStatus by proRepository.proStatusFlow.collectAsStateWithLifecycle()
             var isAdminSession by remember { mutableStateOf(false) }
+            var adminCheckResolved by remember { mutableStateOf(false) }
 
             LaunchedEffect(currentDestination, activeUser?.firebaseUid) {
-                isAdminSession = if (
-                    currentDestination == AppDestination.ADMIN_DASHBOARD ||
-                    currentDestination == AppDestination.MAIN_APP
-                ) {
-                    runCatching { AdminRepository(this@MainActivity).isAdminSession() }.getOrDefault(false)
+                if (currentDestination == AppDestination.ADMIN_DASHBOARD) {
+                    adminCheckResolved = false
+                    val verification = try {
+                        AdminRepository(this@MainActivity).isAdminSession()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        null
+                    }
+                    isAdminSession = verification == true
+                    adminCheckResolved = true
+                    if (adminCheckResolved && verification == false) {
+                        currentDestination = AppDestination.MAIN_APP
+                    }
+                } else if (currentDestination == AppDestination.MAIN_APP) {
+                    val verification = try {
+                        AdminRepository(this@MainActivity).isAdminSession()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        null
+                    }
+                    isAdminSession = verification == true
+                    adminCheckResolved = true
                 } else {
-                    false
-                }
-                if (currentDestination == AppDestination.ADMIN_DASHBOARD && !isAdminSession) {
-                    currentDestination = AppDestination.MAIN_APP
+                    isAdminSession = false
+                    adminCheckResolved = true
                 }
             }
 
@@ -266,9 +298,15 @@ class MainActivity : ComponentActivity() {
                             TermsAgreementScreen(
                                 onAgree = {
                                     lifecycleScope.launch {
-                                        val admin = runCatching {
+                                        val admin = try {
                                             AdminRepository(this@MainActivity).isAdminSession()
-                                        }.getOrDefault(false)
+                                        } catch (error: CancellationException) {
+                                            throw error
+                                        } catch (_: Exception) {
+                                            false
+                                        }
+                                        isAdminSession = admin
+                                        adminCheckResolved = true
                                         currentDestination = if (admin) {
                                             AppDestination.ADMIN_DASHBOARD
                                         } else {
@@ -395,6 +433,22 @@ fun MainAppContainer(
 
     val context = LocalContext.current
     val glassColors = com.example.ui.theme.LocalGlassTheme.current
+    val unityAdsReady by UnityAdsController.isInitialized.collectAsStateWithLifecycle()
+
+    LaunchedEffect(unityAdsReady) {
+        if (unityAdsReady) {
+            context.findActivity()?.let { UnityInterstitialManager.preloadInterstitial(it) }
+        }
+    }
+
+    val openWithInterstitial: (() -> Unit) -> Unit = { openModule ->
+        val activity = context.findActivity()
+        if (activity == null) {
+            openModule()
+        } else {
+            UnityInterstitialManager.showInterstitial(activity, onAdClosed = openModule)
+        }
+    }
 
     Scaffold(
         modifier = Modifier
@@ -522,7 +576,11 @@ fun MainAppContainer(
                         // Tab 4: Habits Tracker
                         NavigationBarItem(
                             selected = selectedTab == 4,
-                            onClick = { selectedTab = 4 },
+                            onClick = {
+                                if (selectedTab != 4) {
+                                    openWithInterstitial { selectedTab = 4 }
+                                }
+                            },
                             icon = {
                                 Icon(
                                     imageVector = if (selectedTab == 4) Icons.Filled.EmojiEvents else Icons.Outlined.EmojiEvents,
@@ -662,7 +720,11 @@ fun MainAppContainer(
                             onNavigateToScanner = { activeEnterpriseScreen = EnterpriseFeatureScreen.ARABIC_SCANNER },
                             onNavigateToDuaWall = { activeEnterpriseScreen = EnterpriseFeatureScreen.GLOBAL_DUA_WALL },
                             onNavigateToKids = { activeEnterpriseScreen = EnterpriseFeatureScreen.KIDS_LEARNING },
-                            onNavigateToZakat = { activeEnterpriseScreen = EnterpriseFeatureScreen.SMART_ZAKAT },
+                            onNavigateToZakat = {
+                                openWithInterstitial {
+                                    activeEnterpriseScreen = EnterpriseFeatureScreen.SMART_ZAKAT
+                                }
+                            },
                             onNavigateToPrayerTimes = { activeEnterpriseScreen = EnterpriseFeatureScreen.PRAYER_TIMES },
                             onNavigateToSettings = { activeEnterpriseScreen = EnterpriseFeatureScreen.SETTINGS },
                             onNavigateToArQibla = { activeEnterpriseScreen = EnterpriseFeatureScreen.AR_QIBLA },

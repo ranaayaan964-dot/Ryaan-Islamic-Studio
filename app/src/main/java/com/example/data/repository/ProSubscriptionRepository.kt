@@ -105,24 +105,35 @@ class ProSubscriptionRepository private constructor(context: Context) {
     suspend fun syncKeysForAdmin() {
         requireAdmin()
         val snapshot = firestore.collection(KEY_COLLECTION).get().await()
+        val remoteKeys = snapshot.documents.map { document ->
+            runCatching { document.getString("licenseKey") }.getOrNull()
+                ?.takeIf(String::isNotBlank) ?: document.id
+        }.toSet()
         val keys = snapshot.documents.mapNotNull { document ->
-            val plan = document.getString("planTier") ?: return@mapNotNull null
-            ProLicenseKeyEntity(
-                licenseKey = document.getString("licenseKey") ?: document.id,
-                planTier = plan,
-                durationDays = (document.getLong("durationDays") ?: return@mapNotNull null).toInt(),
-                pricePkr = (document.getLong("pricePkr") ?: 0L).toInt(),
-                isUsed = document.getBoolean("isUsed") ?: false,
-                usedByUsername = document.getString("usedByUsername").orEmpty(),
-                usedByEmail = document.getString("usedByEmail").orEmpty(),
-                usedByUid = document.getString("usedByUid").orEmpty(),
-                createdAt = document.getLong("createdAt") ?: 0L,
-                activatedAt = document.getLong("activatedAt") ?: 0L,
-                expiresAt = document.getLong("expiresAt") ?: 0L,
-                aiNote = document.getString("aiNote").orEmpty()
-            )
+            runCatching {
+                val plan = document.getString("planTier") ?: return@runCatching null
+                val durationDays = document.getLong("durationDays") ?: return@runCatching null
+                ProLicenseKeyEntity(
+                    licenseKey = document.getString("licenseKey") ?: document.id,
+                    planTier = plan,
+                    durationDays = durationDays.toInt(),
+                    pricePkr = (document.getLong("pricePkr") ?: 0L).toInt(),
+                    isUsed = document.getBoolean("isUsed") ?: false,
+                    usedByUsername = document.getString("usedByUsername").orEmpty(),
+                    usedByEmail = document.getString("usedByEmail").orEmpty(),
+                    usedByUid = document.getString("usedByUid").orEmpty(),
+                    createdAt = document.getLong("createdAt") ?: 0L,
+                    activatedAt = document.getLong("activatedAt") ?: 0L,
+                    expiresAt = document.getLong("expiresAt") ?: 0L,
+                    aiNote = document.getString("aiNote").orEmpty()
+                )
+            }.onFailure { error ->
+                Log.w(TAG, "Could not sync Pro key document ${document.id}.", error)
+            }.getOrNull()
         }
-        keyDao.insertProKeys(keys)
+        val localKeys = keyDao.getProKeysByUsage(true) + keyDao.getProKeysByUsage(false)
+        localKeys.filter { it.licenseKey !in remoteKeys }.forEach { keyDao.deleteProKey(it.licenseKey) }
+        keys.forEach { keyDao.upsertProKey(it) }
     }
 
     suspend fun generateProKeyWithGroqAi(
@@ -132,11 +143,16 @@ class ProSubscriptionRepository private constructor(context: Context) {
         runCatching {
             requireAdmin()
             val key = createUniqueKey(tier)
-            val fallbackNote = "Alhamdulillah! Your ${tier.displayName} gives you ${tier.durationDays} days of premium access."
+            val fallbackNote = "Alhamdulillah! Your ${tier.displayName} activates ${tier.durationDays} days of unlimited, ad-free Ayaan Islamic Studio."
             val note = buyerNote.trim().take(120).ifBlank {
-                createGroqWelcomeNote(tier).onFailure {
-                    Log.w(TAG, "Groq welcome note unavailable; using the standard activation message.", it)
-                }.getOrDefault(fallbackNote)
+                try {
+                    createGroqWelcomeNote(tier).getOrThrow()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.w(TAG, "Groq welcome note unavailable; using the standard activation message.", error)
+                    fallbackNote
+                }
             }
             val entity = ProLicenseKeyEntity(
                 licenseKey = key,
@@ -151,6 +167,8 @@ class ProSubscriptionRepository private constructor(context: Context) {
                 .await()
             keyDao.insertProKey(entity)
             entity
+        }.onFailure { error ->
+            if (error is CancellationException) throw error
         }
 
     suspend fun generateProKey(tier: ProPlanTier, buyerNote: String = ""): Result<ProLicenseKeyEntity> =

@@ -16,19 +16,23 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,6 +57,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -88,6 +93,9 @@ fun SplashScreen(
     onNavigateNext: (isLoggedIn: Boolean) -> Unit
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isCompactLayout = configuration.screenWidthDp < 380 || configuration.screenHeightDp < 720
+    val emblemSize = if (isCompactLayout) 180.dp else 230.dp
     var isUserLoggedIn by remember { mutableStateOf(false) }
     var preloadStatus by remember { mutableStateOf("Initializing Sacred Architecture...") }
     var signatureVisible by remember { mutableStateOf(false) }
@@ -229,19 +237,25 @@ fun SplashScreen(
         }
 
         // Foreground Content
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = maxHeight)
+                    .padding(horizontal = if (isCompactLayout) 16.dp else 24.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
             // Top Subtle Brand Pill
             Row(
                 modifier = Modifier
-                    .padding(top = 16.dp)
+                    .padding(top = 4.dp)
                     .clip(RoundedCornerShape(30.dp))
                     .background(Color(0x2010B981))
                     .border(1.dp, Color(0x40D4AF37), RoundedCornerShape(30.dp))
@@ -260,7 +274,7 @@ fun SplashScreen(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color(0xFFFBBF24),
-                    letterSpacing = 2.sp
+                    letterSpacing = if (isCompactLayout) 1.sp else 2.sp
                 )
             }
 
@@ -273,11 +287,11 @@ fun SplashScreen(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(230.dp)
+                        .size(emblemSize)
                         .scale(emblemScale)
                 ) {
                     // Compose Canvas for Particle Halo & Sacred Kaaba / Crescent Vector
-                    Canvas(modifier = Modifier.size(230.dp)) {
+                    Canvas(modifier = Modifier.size(emblemSize)) {
                         val center = Offset(size.width / 2f, size.height / 2f)
                         val outerRadius = size.width * 0.46f
 
@@ -411,7 +425,7 @@ fun SplashScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(if (isCompactLayout) 14.dp else 28.dp))
 
                 // APP TITLE: "AYAAN ISLAMIC STUDIO" with Metallic Gold Text Styling
                 val metallicGoldBrush = Brush.linearGradient(
@@ -430,10 +444,10 @@ fun SplashScreen(
                     text = "AYAAN ISLAMIC STUDIO",
                     style = TextStyle(
                         brush = metallicGoldBrush,
-                        fontSize = 24.sp,
+                        fontSize = if (isCompactLayout) 20.sp else 24.sp,
                         fontWeight = FontWeight.ExtraBold,
                         fontFamily = FontFamily.Serif,
-                        letterSpacing = 4.sp,
+                        letterSpacing = if (isCompactLayout) 2.sp else 4.sp,
                         textAlign = TextAlign.Center
                     ),
                     modifier = Modifier.padding(horizontal = 8.dp)
@@ -446,11 +460,11 @@ fun SplashScreen(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color(0xFF10B981),
-                    letterSpacing = 3.sp,
+                    letterSpacing = if (isCompactLayout) 1.5.sp else 3.sp,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(26.dp))
+                Spacer(modifier = Modifier.height(if (isCompactLayout) 14.dp else 26.dp))
 
                 // Preload status indicator
                 Row(
@@ -554,6 +568,7 @@ fun SplashScreen(
                                 letterSpacing = 2.sp
                             )
                         }
+                    }
                     }
                 }
             }

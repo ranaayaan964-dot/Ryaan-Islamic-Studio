@@ -121,6 +121,7 @@ fun TabeerDreamScreen(
     var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
     var isAnalyzing by remember { mutableStateOf(false) }
     var analysisResult by remember { mutableStateOf<DreamAnalysisResult?>(null) }
+    var analysisError by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -151,6 +152,8 @@ fun TabeerDreamScreen(
             showProUpgradeDialog = true
             return
         }
+        analysisError = null
+        analysisResult = null
         isAnalyzing = true
 
         scope.launch {
@@ -168,23 +171,28 @@ fun TabeerDreamScreen(
                     4. SPIRITUAL REFLECTION & ADAB: Prophetic guidance (good dreams vs distressing thoughts) and recommended supplications (Duas).
                 """.trimIndent()
 
-                val result = DualAiScholarEngine.askScholar(
-                    context = context,
+                val result = DualAiScholarEngine.askScholarWithSource(
                     userQuery = prompt,
-                    isFatwaRequest = true
+                    customSystemPrompt = "Provide cautious Islamic dream guidance. Do not invent classical quotations or citations. Distinguish general reflection from verified source references, and state uncertainty clearly."
                 )
-
+                if (
+                    result.source.contains("unavailable", ignoreCase = true) ||
+                    result.source.contains("failover", ignoreCase = true) ||
+                    Regex("HTTP\\s+\\d{3}|provider failover unavailable", RegexOption.IGNORE_CASE)
+                        .containsMatchIn(result.answer)
+                ) {
+                    analysisError = "Dream analysis is temporarily unavailable. Check your connection and try again."
+                    return@launch
+                }
+                if (result.answer.isBlank()) {
+                    analysisError = "No dream analysis was returned. Please try again."
+                    return@launch
+                }
                 analysisResult = parseDreamAnalysis(result.answer)
-            } catch (e: Exception) {
-                analysisResult = DreamAnalysisResult(
-                    summary = "Your dream reflects inward contemplation and spiritual seeking.",
-                    symbols = listOf(
-                        "Light / Radiance" to "Represents divine guidance, steadfastness in faith, and relief from distress according to Ibn Sirin.",
-                        "Water / Path" to "Symbolizes knowledge, purification of the heart, and lawful sustenance."
-                    ),
-                    ibnSirinReference = "Ibn Sirin's 'Tafsir al-Ahlam', Chapter on Heavenly Visions and Symbols of Purity.",
-                    spiritualAdvice = "The Prophet ﷺ taught: 'A good dream is from Allah, so when someone sees what he loves, let him praise Allah.' [Sahih al-Bukhari 6985]. Make Wudu, give Sadaqah, and recite Ayat al-Kursi before sleep."
-                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                analysisError = "Dream analysis couldn't be completed. Check your connection and try again."
             } finally {
                 isAnalyzing = false
             }
@@ -406,6 +414,17 @@ fun TabeerDreamScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            analysisError?.let { message ->
+                Text(
+                    text = message,
+                    color = CrimsonError,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                )
+            }
+
             // Analysis Result Display
             analysisResult?.let { analysis ->
                 NeumorphicCard(
@@ -559,11 +578,11 @@ fun TabeerDreamScreen(
 
 private fun parseDreamAnalysis(raw: String): DreamAnalysisResult {
     val lines = raw.lines().filter { it.isNotBlank() }
-    val summary = lines.take(3).joinToString(" ")
+    val summary = lines.take(3).joinToString(" ").ifBlank { "No summary was provided." }
 
     val symbols = mutableListOf<Pair<String, String>>()
-    var ref = "Ibn Sirin's 'Muntakhab al-Kalam fi Tafsir al-Ahlam'."
-    var advice = "Praise Allah for auspicious visions and recite Ayat al-Kursi upon resting."
+    var ref = "No verifiable classical citation was included in this response."
+    var advice = "Treat this as general reflection, not a definite prediction or religious ruling."
 
     lines.forEach { line ->
         if (line.contains("Ibn Sirin", ignoreCase = true) && line.length < 160) {
@@ -579,7 +598,7 @@ private fun parseDreamAnalysis(raw: String): DreamAnalysisResult {
     }
 
     if (symbols.isEmpty()) {
-        symbols.add("Primary Vision Symbol" to "Signifies spiritual elevation and lawful blessing in classical Islamic oneiromancy.")
+        symbols.add("No specific symbols returned" to "No symbol-by-symbol interpretation was provided.")
     }
 
     return DreamAnalysisResult(

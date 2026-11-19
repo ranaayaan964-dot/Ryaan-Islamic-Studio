@@ -1,6 +1,8 @@
 package com.example.data.remote
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import com.example.data.database.AppDatabase
 import com.example.data.database.ChatHistoryEntity
@@ -20,12 +22,9 @@ data class AiScholarResult(
 )
 
 /**
- * REMEDIATION D2: PRODUCTION DUAL-AI SCHOLAR ENGINE
- * - Full Moshi JSON DTO serialization/deserialization for both Gemini and Groq
- * - Elimination of fragile string-splitting/regex JSON parsers
- * - Guaranteed auto-closing of OkHttp response streams with .use { ... }
- * - Fast 6s Gemini timeout with failover to Groq's production GPT-OSS model
- * - Fallback to embedded classical Islamic corpus on complete offline state
+ * Routes Islamic guidance requests across the supported Gemini and Groq model pools.
+ * Temporary provider failures receive a short cooldown; confirmed offline state gets
+ * cautious local guidance instead of a provider error.
  */
 object DualAiScholarEngine {
     private const val TAG = "DualAiScholarEngine"
@@ -37,8 +36,8 @@ object DualAiScholarEngine {
     private val geminiModelCursor = AtomicInteger()
     private val groqModelCursor = AtomicInteger()
 
-    private val geminiModels = listOf("gemini-2.5-flash", "gemini-3.1-pro-preview", "gemini-2.0-flash")
-    private val groqModels = listOf("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it")
+    private val geminiModels = listOf("gemini-2.5-flash", "gemini-2.0-flash")
+    private val groqModels = listOf("llama-3.3-70b-versatile", "llama-3.1-8b-instant")
 
     // MODULE 10: UNBREAKABLE ISLAMIC SCHOLAR GUARDRAILS (VERSION 1.1 WITH TABEER DREAM INTERPRETATION)
     private const val SYSTEM_PROMPT = """You are Noor, a highly knowledgeable and devout Islamic Scholar and Mufti. You are strictly permitted to answer questions on Islam, Quran, Hadith, Fiqh, Islamic history, Halal/Haram guidelines, and Islamic Dream Interpretation (Tabeer-ur-Roya / تعبیر الرؤیا) based on the authentic methodology of Imam Muhammad Ibn Sirin and the Sunnah. You MUST outright refuse to answer any questions about computer coding, software programming, worldly politics, movies, Hollywood/Bollywood entertainment, celebrities, or unrelated secular topics. If the user asks anything outside the Deen, reply ONLY with: 'I am an Islamic Scholar. I can only assist you with matters related to the Deen and Islamic Dream Interpretation (Tabeer).' Do not break character under any circumstances."""
@@ -70,7 +69,7 @@ object DualAiScholarEngine {
                 Log.w(TAG, "Could not persist user chat message: ${dbEx.message}")
             }
 
-            val result = routeText(userQuery, SYSTEM_PROMPT)
+            val result = routeText(userQuery, SYSTEM_PROMPT, context)
                 ?: generateUnavailableResponse()
 
             val extractedRefs = extractReferences(result.answer)
@@ -116,7 +115,13 @@ object DualAiScholarEngine {
                 )
         }
 
-    private suspend fun routeText(userQuery: String, systemPrompt: String): AiScholarResult? {
+    private suspend fun routeText(
+        userQuery: String,
+        systemPrompt: String,
+        context: Context? = null
+    ): AiScholarResult? {
+        if (context != null && isDefinitelyOffline(context)) return generateOfflineResponse()
+        var sawOfflineFailure = false
         val providers = listOf(
             "gemini" to rotate(geminiModels, geminiModelCursor),
             "groq" to rotate(groqModels, groqModelCursor)
@@ -177,6 +182,18 @@ object DualAiScholarEngine {
                     }
                 } catch (error: CancellationException) {
                     throw error
+                } catch (error: AiProxyException) {
+                    if (error.isOffline) sawOfflineFailure = true
+                    if (error.isTransient) {
+                        val cooldown = if (error.httpCode == 429 || (error.httpCode ?: 0) >= 500) {
+                            COOLDOWN_DURATION_MS
+                        } else {
+                            TRANSIENT_COOLDOWN_MS
+                        }
+                        markCooldown(routeId, cooldown)
+                    }
+                    Log.w(TAG, "AI proxy route failed: route=$routeId status=${error.httpCode ?: "network"}")
+                    null
                 } catch (error: Exception) {
                     Log.w(TAG, "AI proxy route failed: route=$routeId error=${error::class.java.simpleName}")
                     null
@@ -185,16 +202,26 @@ object DualAiScholarEngine {
                     cooldownMap.remove(routeId)
                     return AiScholarResult(answer.trim(), "${provider.replaceFirstChar(Char::uppercase)} $model")
                 }
-                markCooldown(routeId, TRANSIENT_COOLDOWN_MS)
             }
+        }
+        if (sawOfflineFailure || (context != null && isDefinitelyOffline(context))) {
+            return generateOfflineResponse()
         }
         return null
     }
 
     internal fun parseConfiguredKeyPool(raw: String): List<String> = raw
         .split(',', ';', '\n')
-        .map(String::trim)
-        .filter { it.isNotBlank() && !it.startsWith("YOUR_") && !it.startsWith("MY_") }
+        .map { it.trim().trim('"', '\'').trim() }
+        .filter { key ->
+            key.isNotBlank() &&
+                !key.equals("null", ignoreCase = true) &&
+                !key.startsWith("YOUR_", ignoreCase = true) &&
+                !key.startsWith("MY_", ignoreCase = true) &&
+                !key.startsWith("REPLACE", ignoreCase = true) &&
+                !key.startsWith("CHANGEME", ignoreCase = true) &&
+                !key.startsWith("\${")
+        }
         .distinct()
 
     private fun <T> rotate(values: List<T>, cursor: AtomicInteger): List<T> {
@@ -214,6 +241,15 @@ object DualAiScholarEngine {
         cooldownMap[routeId] = System.currentTimeMillis() + durationMs
     }
 
+    private fun isDefinitelyOffline(context: Context): Boolean = try {
+        val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
+        val network = connectivityManager?.activeNetwork
+        val capabilities = network?.let(connectivityManager::getNetworkCapabilities)
+        capabilities == null || !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    } catch (_: Exception) {
+        false
+    }
+
     private fun extractReferences(text: String): List<String> {
         val regex = Regex("\\[(Surah [^\\]]+|Sahih [^\\]]+|Sunan [^\\]]+|Al-Muwatta [^\\]]+)\\]")
         val matches = regex.findAll(text).map { it.value.removeSurrounding("[", "]") }.toList()
@@ -221,7 +257,12 @@ object DualAiScholarEngine {
     }
 
     private fun generateUnavailableResponse() = AiScholarResult(
-        answer = "Assalamu Alaikum. I could not get a reliable answer because the AI services are unavailable. Please try again later. For a personal religious ruling, consult a qualified scholar.",
+        answer = "Assalamu Alaikum. I’m unable to reach the AI services right now. Please try again later, and consult a qualified scholar for a personal religious ruling.",
         source = "AI providers unavailable"
+    )
+
+    private fun generateOfflineResponse() = AiScholarResult(
+        answer = "Assalamu Alaikum. You appear to be offline, so I cannot verify an AI-generated answer at this time. For now, keep to what you know from reliable Quran and Sunnah sources, and ask a qualified scholar for personal guidance when you are connected.",
+        source = "Offline Islamic guidance"
     )
 }

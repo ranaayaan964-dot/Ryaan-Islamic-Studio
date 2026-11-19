@@ -1,14 +1,7 @@
 package com.example.ui.screens
 
 import android.Manifest
-import android.content.Context
-import android.content.Intent
-import android.os.Bundle
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import android.content.pm.PackageManager
-import android.widget.Toast
 import com.example.util.QuranRecitationEvaluator
 import com.example.util.RecitationEvaluationResult
 import com.example.util.WordEvaluationStatus
@@ -45,11 +38,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -59,7 +49,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -79,17 +68,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.ui.components.GlassCard
 import com.example.ui.components.ProUpgradeDialog
+import com.example.data.remote.GroqHifzClient
+import com.example.data.remote.GroqHifzResult
 import com.example.data.repository.ProSubscriptionRepository
+import com.example.util.AudioRecorderHelper
 import com.example.ui.theme.DarkNavyBackground
-import com.example.ui.theme.DarkNavySurfaceVariant
 import com.example.ui.theme.EmeraldAccent
 import com.example.ui.theme.GoldAccent
 import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.GoldSecondary
-import java.util.Locale
 
 data class SurahPracticeItem(
     val id: String,
@@ -108,6 +100,7 @@ fun HifzCheckerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
+    val audioRecorder = remember(context) { AudioRecorderHelper(context) }
     var showProUpgradeDialog by remember { mutableStateOf(false) }
     var hasMicPermission by remember {
         mutableStateOf(
@@ -204,11 +197,15 @@ fun HifzCheckerScreen(
 
     var selectedSurah by remember { mutableStateOf(surahs[0]) }
     var isRecording by remember { mutableStateOf(false) }
+    var isStartingRecording by remember { mutableStateOf(false) }
     var recognizedText by remember { mutableStateOf("") }
     var accuracyScore by remember { mutableIntStateOf(0) }
     var analysisDone by remember { mutableStateOf(false) }
     var speechAmplitude by remember { mutableFloatStateOf(0.4f) }
     var recitationResult by remember { mutableStateOf<RecitationEvaluationResult?>(null) }
+    var aiRecitationResult by remember { mutableStateOf<GroqHifzResult?>(null) }
+    var isEvaluating by remember { mutableStateOf(false) }
+    var analysisError by remember { mutableStateOf<String?>(null) }
     var isLiveVoiceTutorMode by remember { mutableStateOf(false) }
 
     if (isLiveVoiceTutorMode) {
@@ -243,90 +240,74 @@ fun HifzCheckerScreen(
         label = "PulseScale"
     )
 
-    fun executeEvaluation(spokenText: String) {
-        val eval = QuranRecitationEvaluator.evaluate(selectedSurah.ayahText, spokenText)
+    DisposableEffect(audioRecorder) {
+        onDispose { audioRecorder.stopRecording() }
+    }
+
+    fun executeEvaluation(spokenText: String, targetText: String) {
+        val eval = QuranRecitationEvaluator.evaluate(targetText, spokenText)
         recitationResult = eval
         accuracyScore = eval.accuracyPercentage
         analysisDone = true
     }
 
     fun startRecitationAnalysis() {
+        if (isRecording || isStartingRecording || isEvaluating) return
         if (!proRepository.canUseFeatureOrConsume("ai_hifz", 3)) {
             showProUpgradeDialog = true
             return
         }
-        isRecording = true
         analysisDone = false
         recitationResult = null
-        recognizedText = "Listening to recitation..."
-
-        // Initialize Android SpeechRecognizer with strict Quranic Arabic (ar-SA)
-        try {
-            if (SpeechRecognizer.isRecognitionAvailable(context)) {
-                val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-SA")
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ar-SA")
-                    putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ar-SA", "ar"))
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                }
-
-                recognizer.setRecognitionListener(object : RecognitionListener {
-                    override fun onReadyForSpeech(params: Bundle?) {}
-                    override fun onBeginningOfSpeech() {
-                        scope.launch(Dispatchers.Main.immediate) { speechAmplitude = 0.85f }
-                    }
-                    override fun onRmsChanged(rmsdB: Float) {
-                        scope.launch(Dispatchers.Main.immediate) { speechAmplitude = (rmsdB / 10f).coerceIn(0.2f, 1f) }
-                    }
-                    override fun onBufferReceived(buffer: ByteArray?) {}
-                    override fun onEndOfSpeech() {
-                        scope.launch(Dispatchers.Main.immediate) { isRecording = false }
-                    }
-                    override fun onError(error: Int) {
-                        scope.launch(Dispatchers.Main.immediate) {
-                            isRecording = false
-                            recognizedText = ""
-                            executeEvaluation("")
-                        }
-                        try { recognizer.destroy() } catch (_: Exception) {}
-                    }
-                    override fun onResults(results: Bundle?) {
-                        val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        val spoken = matches?.firstOrNull() ?: ""
-                        scope.launch(Dispatchers.Main.immediate) {
-                            recognizedText = spoken
-                            isRecording = false
-                            executeEvaluation(spoken)
-                        }
-                        try { recognizer.destroy() } catch (_: Exception) {}
-                    }
-                    override fun onPartialResults(partialResults: Bundle?) {}
-                    override fun onEvent(eventType: Int, params: Bundle?) {}
-                })
-                recognizer.startListening(intent)
-            } else {
-                // Speech recognizer unavailable on device
-                scope.launch(Dispatchers.Main.immediate) {
-                    isRecording = false
-                    recognizedText = ""
-                    executeEvaluation("")
-                }
-            }
-        } catch (_: Exception) {
-            scope.launch(Dispatchers.Main.immediate) {
+        aiRecitationResult = null
+        analysisError = null
+        recognizedText = ""
+        isStartingRecording = true
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { audioRecorder.startRecording() }
+                isStartingRecording = false
+                isRecording = true
+            } catch (_: Exception) {
+                isStartingRecording = false
                 isRecording = false
-                recognizedText = ""
-                executeEvaluation("")
+                analysisError = "Microphone recording could not start. Check microphone access and try again."
             }
         }
     }
 
     fun stopRecitation() {
+        if (!isRecording) return
         isRecording = false
-        val spoken = if (recognizedText.contains("Listening")) "" else recognizedText
-        executeEvaluation(spoken)
+        isEvaluating = true
+        val surahToCheck = selectedSurah
+        scope.launch {
+            try {
+                val audioFile = withContext(Dispatchers.IO) { audioRecorder.stopRecording() }
+                if (audioFile == null || !audioFile.isFile || audioFile.length() == 0L) {
+                    analysisError = "No recitation audio was captured. Please record again."
+                    return@launch
+                }
+                val result = GroqHifzClient.evaluateRecitation(
+                    audioFile = audioFile,
+                    targetText = surahToCheck.ayahText,
+                    surahName = surahToCheck.name
+                ).getOrElse { throw it }
+                if (result.transcript.isBlank()) {
+                    analysisError = "The recitation could not be transcribed. Please try again in a quieter place."
+                    return@launch
+                }
+                aiRecitationResult = result
+                recognizedText = result.transcript
+                executeEvaluation(result.transcript, surahToCheck.ayahText)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                analysisError = "Transcription or recitation review is temporarily unavailable. Check your connection and try again."
+            } finally {
+                isEvaluating = false
+            }
+        }
     }
 
     val micPermissionLauncher = rememberLauncherForActivityResult(
@@ -336,7 +317,7 @@ fun HifzCheckerScreen(
         if (granted) {
             startRecitationAnalysis()
         } else {
-            Toast.makeText(context, "Microphone permission is required for recitation check", Toast.LENGTH_SHORT).show()
+            analysisError = "Microphone permission is required to record a recitation."
         }
     }
 
@@ -404,7 +385,7 @@ fun HifzCheckerScreen(
                                 color = Color.White
                             )
                             Text(
-                                text = "Real-time Tajweed & Makhraj Verification",
+                                text = "Arabic transcription & text comparison",
                                 fontSize = 11.sp,
                                 color = Color(0xFF94A3B8)
                             )
@@ -477,9 +458,12 @@ fun HifzCheckerScreen(
                                 RoundedCornerShape(16.dp)
                             )
                             .clickable {
+                                if (isRecording || isStartingRecording || isEvaluating) return@clickable
                                 selectedSurah = surah
                                 analysisDone = false
                                 recognizedText = ""
+                                aiRecitationResult = null
+                                analysisError = null
                             }
                             .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
@@ -580,10 +564,15 @@ fun HifzCheckerScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = if (isRecording) "Reciting now... Speak clearly" else "Tap Mic to Start Recitation",
+                        text = when {
+                            isStartingRecording -> "Starting microphone..."
+                            isRecording -> "Recording... Tap Stop when finished"
+                            isEvaluating -> "Transcribing and reviewing your recitation..."
+                            else -> "Tap Mic to Start Recitation"
+                        },
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (isRecording) EmeraldAccent else Color.White
+                        color = if (isRecording || isStartingRecording) EmeraldAccent else Color.White
                     )
 
                     Spacer(modifier = Modifier.height(18.dp))
@@ -598,7 +587,7 @@ fun HifzCheckerScreen(
                     ) {
                         val barCount = 18
                         for (i in 0 until barCount) {
-                            val factor = if (isRecording) {
+                            val factor = if (isRecording || isStartingRecording) {
                                 ((i % 5 + 2) * 8f * waveScale * speechAmplitude).coerceIn(6f, 48f)
                             } else {
                                 6f
@@ -609,7 +598,7 @@ fun HifzCheckerScreen(
                                     .height(factor.dp)
                                     .clip(RoundedCornerShape(2.dp))
                                     .background(
-                                        if (isRecording) Brush.verticalGradient(listOf(EmeraldAccent, GoldPrimary))
+                                        if (isRecording || isStartingRecording) Brush.verticalGradient(listOf(EmeraldAccent, GoldPrimary))
                                         else Brush.verticalGradient(listOf(Color(0x44E5C07B), Color(0x22E5C07B)))
                                     )
                             )
@@ -622,14 +611,16 @@ fun HifzCheckerScreen(
                     Box(
                         modifier = Modifier
                             .size(76.dp)
-                            .scale(if (isRecording) waveScale else 1f)
+                            .scale(if (isRecording || isStartingRecording) waveScale else 1f)
                             .clip(CircleShape)
                             .background(
                                 if (isRecording) Brush.linearGradient(listOf(Color(0xFFEF4444), Color(0xFFF97316)))
                                 else Brush.linearGradient(listOf(GoldPrimary, GoldAccent))
                             )
                             .clickable {
-                                if (isRecording) {
+                                if (isEvaluating || isStartingRecording) {
+                                    return@clickable
+                                } else if (isRecording) {
                                     stopRecitation()
                                 } else if (hasMicPermission) {
                                     startRecitationAnalysis()
@@ -647,7 +638,28 @@ fun HifzCheckerScreen(
                             modifier = Modifier.size(36.dp)
                         )
                     }
+
+                    if (isEvaluating) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(0.82f),
+                            color = EmeraldAccent,
+                            trackColor = Color(0x3310B981)
+                        )
+                    }
                 }
+            }
+
+            analysisError?.let { message ->
+                Text(
+                    text = message,
+                    color = Color(0xFFFCA5A5),
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    textAlign = TextAlign.Center
+                )
             }
 
             // AI Tajweed Analysis Feedback Card
@@ -677,7 +689,7 @@ fun HifzCheckerScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "AI Recitation Score",
+                                    text = "Transcript Match Estimate",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
@@ -685,7 +697,7 @@ fun HifzCheckerScreen(
                             }
 
                             Text(
-                                text = "$accuracyScore% Accuracy",
+                                text = "$accuracyScore% text match",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = EmeraldAccent
@@ -707,7 +719,7 @@ fun HifzCheckerScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Text(
-                            text = "WORD-BY-WORD TAJWEED EVALUATION:",
+                                text = "WORD-BY-WORD TRANSCRIPT COMPARISON:",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = GoldSecondary,
@@ -747,7 +759,7 @@ fun HifzCheckerScreen(
                                             Text(
                                                 text = when (evalWord.status) {
                                                     WordEvaluationStatus.CORRECT -> "Correct ✓"
-                                                    WordEvaluationStatus.MISPRONOUNCED -> "Tajweed ⚠"
+                                                    WordEvaluationStatus.MISPRONOUNCED -> "Text difference"
                                                     WordEvaluationStatus.MISSED -> "Missed ✗"
                                                 },
                                                 fontSize = 10.sp,
@@ -794,12 +806,34 @@ fun HifzCheckerScreen(
                         }
 
                         Spacer(modifier = Modifier.height(14.dp))
-
                         Text(
-                            text = "Masha'Allah! Your pronunciation of the throat letters (Huroof Halqiyyah) was clear and resonant. Continue practicing verse endings to solidify your stop pauses.",
+                            text = "TRANSCRIBED RECITATION",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GoldSecondary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = recognizedText,
+                            fontSize = 18.sp,
+                            fontFamily = FontFamily.Serif,
+                            color = Color.White,
+                            lineHeight = 28.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = aiRecitationResult?.feedback
+                                ?: "This estimate compares the transcript with the selected text. It cannot assess pronunciation or Tajweed.",
                             fontSize = 12.sp,
                             color = Color(0xFFCBD5E1),
                             lineHeight = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Text comparison only — pronunciation and Tajweed require review by a qualified teacher.",
+                            fontSize = 10.sp,
+                            color = Color(0xFF94A3B8),
+                            lineHeight = 15.sp
                         )
                     }
                 }

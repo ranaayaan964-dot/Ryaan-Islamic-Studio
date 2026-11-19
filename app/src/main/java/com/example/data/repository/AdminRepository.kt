@@ -14,11 +14,21 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.util.Locale
+
+data class AdminUserSyncSummary(
+    val total: Int = 0,
+    val active: Int = 0,
+    val removed: Int = 0
+)
 
 class AdminRepository(context: Context) {
     companion object {
@@ -35,8 +45,10 @@ class AdminRepository(context: Context) {
     private val database = AppDatabase.getInstance(appContext)
     private val userDao = database.userDao()
     private val adminDao = database.adminDao()
+    private val mutableUserSyncSummary = MutableStateFlow(AdminUserSyncSummary())
 
     fun observeAllUsers(): Flow<List<UserEntity>> = userDao.getAllActiveUsersFlow()
+    val userSyncSummary: StateFlow<AdminUserSyncSummary> = mutableUserSyncSummary.asStateFlow()
     fun observeAllMessages(): Flow<List<AdminMessageEntity>> = adminDao.getAllAdminMessagesFlow()
     fun observeAllReports(): Flow<List<UserReportEntity>> = adminDao.getAllUserReportsFlow()
 
@@ -119,29 +131,68 @@ class AdminRepository(context: Context) {
 
     suspend fun isAdminSession(): Boolean = withContext(Dispatchers.IO) {
         val firebaseUser = auth.currentUser ?: return@withContext false
-        val localUser = userDao.getActiveSession() ?: return@withContext false
-        if (!localUser.isLoggedIn || localUser.isRemoved || localUser.firebaseUid != firebaseUser.uid) {
-            return@withContext false
+        val verifiedEmailIsAuthorized = firebaseUser.isEmailVerified &&
+            firebaseUser.email?.trim()?.lowercase(Locale.US) in AUTHORIZED_ADMIN_EMAILS
+        val hasAdminClaim = if (verifiedEmailIsAuthorized) {
+            false
+        } else {
+            try {
+                firebaseUser.getIdToken(true).await().claims["admin"] == true
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                Log.w(TAG, "Could not verify the administrator custom claim.", error)
+                false
+            }
         }
+        val isAdmin = verifiedEmailIsAuthorized || hasAdminClaim
+        if (!isAdmin) return@withContext false
+
         try {
-            (firebaseUser.email?.trim()?.lowercase() in AUTHORIZED_ADMIN_EMAILS || firebaseUser.getIdToken(true).await().claims["admin"] == true)
+            val email = firebaseUser.email?.trim().orEmpty()
+            val existing = userDao.getUserByFirebaseUid(firebaseUser.uid)
+                ?: email.takeIf(String::isNotBlank)?.let { userDao.findUserByEmail(it) }
+            val now = System.currentTimeMillis()
+            userDao.insertUser(
+                (existing ?: UserEntity(
+                    id = userDao.getNextUserId(),
+                    username = email.substringBefore("@").ifBlank { "admin" },
+                    fullName = firebaseUser.displayName?.takeIf(String::isNotBlank) ?: "Ayaan Admin",
+                    email = email,
+                    firebaseUid = firebaseUser.uid,
+                    authProvider = firebaseUser.providerData.firstOrNull()?.providerId.orEmpty(),
+                    createdAt = now
+                )).copy(
+                    isLoggedIn = true,
+                    loginTimestamp = now,
+                    role = "ADMIN",
+                    firebaseUid = firebaseUser.uid,
+                    email = email.ifBlank { existing?.email.orEmpty() },
+                    isRemoved = false
+                )
+            )
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            Log.w(TAG, "Could not verify the administrator custom claim.", error)
-            false
+            Log.e(TAG, "Administrator verified, but their Room session could not be synchronized.", error)
         }
+        true
     }
 
     suspend fun syncUsersFromFirestore() = withContext(Dispatchers.IO) {
         requireAdmin()
-        runCatching {
-            val documents = firestore.collection("users").get().await().documents
-            documents.forEach { document ->
-                val uid = document.id
-                if (document.getBoolean("isRemoved") == true || document.getString("status") == "REMOVED") {
-                    userDao.markUserRemovedByFirebaseUid(uid)
-                    return@forEach
+        val documents = firestore.collection("users").get().await().documents
+        var activeCount = 0
+        var removedCount = 0
+        documents.forEach { document ->
+            runCatching {
+                val removed = document.getBoolean("isRemoved") == true ||
+                    document.getString("status") == "REMOVED"
+                if (removed) {
+                    removedCount++
+                    userDao.markUserRemovedByFirebaseUid(document.id)
+                    return@runCatching
                 }
+                activeCount++
+                val uid = document.id
                 val existing = userDao.getUserByFirebaseUid(uid)
                 val localId = existing?.id ?: userDao.getNextUserId()
                 val docEmail = document.getString("email").orEmpty()
@@ -153,9 +204,9 @@ class AdminRepository(context: Context) {
                         fullName = document.getString("fullName").orEmpty().ifBlank { "Ayaan User" },
                         email = docEmail,
                         sessionToken = existing?.sessionToken,
-                        isLoggedIn = existing?.isLoggedIn ?: false,
+                        isLoggedIn = if (uid == auth.currentUser?.uid) true else existing?.isLoggedIn ?: false,
                         loginTimestamp = document.getLong("lastLoginAt") ?: 0L,
-                        role = document.getString("role") ?: "USER",
+                        role = if (uid == auth.currentUser?.uid) "ADMIN" else document.getString("role") ?: "USER",
                         firebaseUid = uid,
                         authProvider = document.getString("authProvider").orEmpty(),
                         createdAt = document.getLong("createdAt") ?: 0L,
@@ -166,8 +217,16 @@ class AdminRepository(context: Context) {
                         activatedProKey = document.getString("activatedProKey") ?: existing?.activatedProKey.orEmpty()
                     )
                 )
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                Log.e(TAG, "Could not sync user document ${document.id}.", error)
             }
         }
+        mutableUserSyncSummary.value = AdminUserSyncSummary(
+            total = documents.size,
+            active = activeCount,
+            removed = removedCount
+        )
     }
 
     suspend fun syncMessagesForCurrentUser() = withContext(Dispatchers.IO) {
@@ -184,18 +243,14 @@ class AdminRepository(context: Context) {
 
     suspend fun syncMessagesForAdmin() = withContext(Dispatchers.IO) {
         requireAdmin()
-        runCatching {
-            val documents = firestore.collection("admin_messages").get().await().documents
-            adminDao.insertAdminMessages(documents.mapNotNull { it.toMessageEntity() })
-        }
+        val documents = firestore.collection("admin_messages").get().await().documents
+        adminDao.insertAdminMessages(documents.mapNotNull { it.toMessageEntity() })
     }
 
     suspend fun syncReportsForAdmin() = withContext(Dispatchers.IO) {
         requireAdmin()
-        runCatching {
-            val documents = firestore.collection("user_reports").get().await().documents
-            adminDao.insertUserReports(documents.mapNotNull { it.toReportEntity() })
-        }
+        val documents = firestore.collection("user_reports").get().await().documents
+        adminDao.insertUserReports(documents.mapNotNull { it.toReportEntity() })
     }
 
     suspend fun syncReportsForCurrentUser() = withContext(Dispatchers.IO) {
@@ -224,24 +279,32 @@ class AdminRepository(context: Context) {
 
     suspend fun removeUser(user: UserEntity) = withContext(Dispatchers.IO) {
         val adminUid = requireAdmin()
-        require(user.email.trim().lowercase() !in AUTHORIZED_ADMIN_EMAILS && user.firebaseUid != adminUid) {
+        require(user.email.trim().lowercase(Locale.US) !in AUTHORIZED_ADMIN_EMAILS && user.firebaseUid != adminUid) {
             "You cannot remove the administrator account."
         }
         if (user.firebaseUid.isNotBlank()) {
-            runCatching {
-                firestore.collection("users").document(user.firebaseUid).set(
-                    mapOf(
-                        "isRemoved" to true,
-                        "status" to "REMOVED",
-                        "removedAt" to System.currentTimeMillis()
-                    ),
-                    SetOptions.merge()
-                ).await()
-            }
+            firestore.collection("users").document(user.firebaseUid).set(
+                mapOf(
+                    "isRemoved" to true,
+                    "status" to "REMOVED",
+                    "removedAt" to System.currentTimeMillis()
+                ),
+                SetOptions.merge()
+            ).await()
             userDao.markUserRemovedByFirebaseUid(user.firebaseUid)
         }
         userDao.markUserRemoved(user.username)
         userDao.deleteUserById(user.id)
+    }
+
+    suspend fun restoreUser(user: UserEntity) = withContext(Dispatchers.IO) {
+        requireAdmin()
+        require(user.firebaseUid.isNotBlank()) { "This account cannot be restored without a Firebase user ID." }
+        firestore.collection("users").document(user.firebaseUid).set(
+            mapOf("isRemoved" to false, "status" to "ACTIVE"),
+            SetOptions.merge()
+        ).await()
+        userDao.insertUser(user.copy(isRemoved = false, isLoggedIn = false, sessionToken = null))
     }
 
     suspend fun sendAdminMessage(
@@ -268,18 +331,14 @@ class AdminRepository(context: Context) {
             senderUid = senderUid,
             timestamp = timestamp
         )
+        document.set(entity.toFirestore(recipients)).await()
         adminDao.insertAdminMessage(entity)
-        runCatching {
-            document.set(entity.toFirestore(recipients)).await()
-        }
     }
 
     suspend fun deleteAdminMessage(messageId: String) = withContext(Dispatchers.IO) {
         requireAdmin()
+        firestore.collection("admin_messages").document(messageId).delete().await()
         adminDao.deleteAdminMessageById(messageId)
-        runCatching {
-            firestore.collection("admin_messages").document(messageId).delete().await()
-        }
     }
 
     suspend fun submitUserReport(
@@ -326,25 +385,21 @@ class AdminRepository(context: Context) {
             senderUid = senderUid,
             timestamp = timestamp
         )
+        val batch = firestore.batch()
+        batch.update(
+            firestore.collection("user_reports").document(report.id),
+            mapOf("status" to status, "adminReply" to reply.trim())
+        )
+        batch.set(messageDocument, message.toFirestore(listOf(report.reporterUid)))
+        batch.commit().await()
         adminDao.updateReportStatusAndReply(report.id, status, reply.trim())
         adminDao.insertAdminMessage(message)
-        runCatching {
-            val batch = firestore.batch()
-            batch.update(
-                firestore.collection("user_reports").document(report.id),
-                mapOf("status" to status, "adminReply" to reply.trim())
-            )
-            batch.set(messageDocument, message.toFirestore(listOf(report.reporterUid)))
-            batch.commit().await()
-        }
     }
 
     suspend fun deleteUserReport(reportId: String) = withContext(Dispatchers.IO) {
         requireAdmin()
+        firestore.collection("user_reports").document(reportId).delete().await()
         adminDao.deleteUserReportById(reportId)
-        runCatching {
-            firestore.collection("user_reports").document(reportId).delete().await()
-        }
     }
 
     private suspend fun requireAdmin(): String {

@@ -65,6 +65,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -355,25 +356,35 @@ fun NextGenDashboardScreen(
             }
 
             Card(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).clickable(onClick = onOpenProActivation),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp)
+                    .clickable(onClick = onOpenProActivation)
+                    .testTag("free_vs_pro_plans_navigation"),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (proStatus.isProActive) Color(0xFF064E3B) else Color(0xFF123C35)
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
                 ),
-                border = BorderStroke(1.dp, GoldPrimary),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp)) {
                     Text(
                         if (proStatus.isProActive) "👑 PRO ACTIVE • ${proStatus.remainingDays} days left"
                         else "👑 FREE PLAN • Tap to Activate Pro Key",
-                        color = GoldPrimary,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         if (proStatus.isProActive) "Unlimited access • Ad-free"
-                        else "Unlock unlimited features and remove ads",
-                        color = Color.White,
+                        else "Compare Free vs Pro plans and unlock more",
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontSize = 12.sp
+                    )
+                    Text(
+                        "VIEW FREE VS PRO PLANS  →",
+                        color = MaterialTheme.colorScheme.secondary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -471,13 +482,25 @@ fun NextGenDashboardScreen(
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Assalamu Alaikum, ${activeUser?.fullName?.substringBefore(' ')?.takeIf(String::isNotBlank) ?: "Welcome"}",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = glassColors.textPrimary
+                    )
+                    Text(
+                        text = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(Date()),
+                        fontSize = 12.sp,
+                        color = glassColors.textSecondary,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+                    )
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.LocationOn,
                                     contentDescription = "Location",
@@ -496,25 +519,31 @@ fun NextGenDashboardScreen(
                             Text(
                                 text = "GPS 30.6682° N, 73.1114° E • Asia/Karachi",
                                 fontSize = 11.sp,
-                                color = GoldAccent,
+                                color = glassColors.textSecondary,
                                 fontWeight = FontWeight.Medium
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = schedule.method,
                                 fontSize = 11.sp,
-                                color = Color(0xFF94A3B8)
+                                color = glassColors.textMuted
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "${schedule.hijriDate} • ${schedule.gregorianDate}",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = GoldSecondary
+                                color = glassColors.textPrimary
                             )
                         }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             // Quick Theme Mode Button
                             IconButton(
                                 onClick = { showThemeDialog = true },
@@ -633,7 +662,6 @@ fun NextGenDashboardScreen(
                                     )
                                 }
                             }
-                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -720,7 +748,7 @@ fun NextGenDashboardScreen(
                                         text = provider.shortName,
                                         fontSize = 11.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                        color = if (isSelected) Color.White else glassColors.textSecondary,
                                         textAlign = TextAlign.Center
                                     )
                                     if (isSelected) {
@@ -774,14 +802,14 @@ fun NextGenDashboardScreen(
                                     "🌙 Test 11:57 PM Midnight Rollover Edge Case",
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (isSimulatedMidnight) Color(0xFFBFDBFE) else GoldAccent
+                                color = if (isSimulatedMidnight) Color(0xFFBFDBFE) else glassColors.textSecondary
                             )
                         }
                         Text(
                             text = if (isSimulatedMidnight) "Reset Device Time" else "Simulate 11:57 PM",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = if (isSimulatedMidnight) Color.White else glassColors.textPrimary
                         )
                     }
 
@@ -823,14 +851,14 @@ fun NextGenDashboardScreen(
                                     "🕌 Test 45-Min Grace Period (12:12 PM)",
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (isSimulatedGracePeriod) Color(0xFFA7F3D0) else GoldAccent
+                                color = if (isSimulatedGracePeriod) Color(0xFFA7F3D0) else glassColors.textSecondary
                             )
                         }
                         Text(
                             text = if (isSimulatedGracePeriod) "Reset Real Time" else "Simulate 12:12 PM",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = if (isSimulatedGracePeriod) Color.White else glassColors.textPrimary
                         )
                     }
 
@@ -865,14 +893,14 @@ fun NextGenDashboardScreen(
                                 text = "Test Background Azan Alarm & Heads-Up",
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = GoldAccent
+                                color = glassColors.textSecondary
                             )
                         }
                         Text(
                             text = "Ring Now",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = glassColors.textPrimary
                         )
                     }
                         }

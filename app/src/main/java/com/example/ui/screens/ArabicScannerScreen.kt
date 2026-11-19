@@ -229,7 +229,7 @@ fun ArabicScannerScreen(
                             Log.e("ArabicScanner", "Image analysis failed.", e)
                             Toast.makeText(
                                 context,
-                                "Image analysis failed: ${e.localizedMessage ?: "Please try again."}",
+                                "Image analysis couldn't be completed. Check your connection and try again.",
                                 Toast.LENGTH_LONG
                             ).show()
                         } finally {
@@ -245,7 +245,7 @@ fun ArabicScannerScreen(
                         isProcessingImage = false
                         Toast.makeText(
                             context,
-                            "Photo capture failed: ${exception.message ?: "Please try again."}",
+                            "Photo capture failed. Please try again.",
                             Toast.LENGTH_SHORT
                         ).show()
                     }

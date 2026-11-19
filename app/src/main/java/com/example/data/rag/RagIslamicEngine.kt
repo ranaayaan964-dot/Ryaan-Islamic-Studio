@@ -74,7 +74,7 @@ object RagIslamicEngine {
                 GeminiApiClient.chat(
                     conversationHistory = listOf(augmentedSystemPrompt to false),
                     prompt = fullPrompt,
-                    modelName = "gemini-1.5-flash"
+                    modelName = "gemini-2.5-flash"
                 )
             } catch (e: Exception) {
                 Result.failure(e)

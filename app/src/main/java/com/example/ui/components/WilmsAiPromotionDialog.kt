@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
@@ -29,6 +30,8 @@ private const val WILMS_WHATSAPP_URL = "https://wa.me/923056319464"
 @Composable
 fun WilmsAiPromotionDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val contentMaxHeight = (screenHeight * 0.58f).coerceIn(220.dp, 480.dp)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -36,7 +39,7 @@ fun WilmsAiPromotionDialog(onDismiss: () -> Unit) {
         text = {
             Column(
                 modifier = Modifier
-                    .heightIn(max = 380.dp)
+                    .heightIn(max = contentMaxHeight)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {

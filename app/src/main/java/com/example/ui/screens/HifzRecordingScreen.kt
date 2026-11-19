@@ -117,7 +117,7 @@ import java.util.Locale
  * - 114 Surah Selection UI with Searchable Bottom Sheet
  * - Exact Arabic Target Text loaded from Room Database (QuranDatabase)
  * - Real Groq Whisper audio detection (whisper-large-v3, language=ar)
- * - Groq-hosted Tajweed evaluation with production chat models
+ * - AI review of transcribed words (not audio-based Tajweed assessment)
  * - Interactive AI Spoken Feedback via Android Text-To-Speech (TTS)
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -312,7 +312,7 @@ fun HifzRecordingScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Groq Whisper & Llama-3 AI Voice Detection",
+                            text = "AI Recitation Transcription & Text Review",
                             color = DeepRoyalEmerald,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium
@@ -527,7 +527,7 @@ fun HifzRecordingScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Press and hold below to recite. Groq Whisper will transcribe in real-time, and AI will speak your Tajweed feedback.",
+                        text = "Press and hold to recite. The AI transcribes and compares words with the selected verses; pronunciation and Tajweed need a qualified listening review.",
                         fontSize = 11.5.sp,
                         color = CharcoalPrimary.copy(alpha = 0.7f),
                         textAlign = TextAlign.Center
@@ -588,7 +588,7 @@ fun HifzRecordingScreen(
                                         throw e
                                     } catch (e: Exception) {
                                         isRecording = false
-                                        Toast.makeText(context, "Recording failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        errorMessage = "Microphone recording could not start. Check microphone access and try again."
                                         return@detectTapGestures
                                     }
 
@@ -626,14 +626,17 @@ fun HifzRecordingScreen(
                                                         }
                                                     },
                                                     onFailure = { err ->
-                                                        errorMessage = "Notice: ${err.localizedMessage ?: "Tajweed evaluation temporarily offline"}"
+                                                        errorMessage = when (err) {
+                                                            is IllegalArgumentException -> "The recording could not be processed. Please record again."
+                                                            else -> "Transcription or recitation review is temporarily unavailable. Check your connection and try again."
+                                                        }
                                                     }
                                                 )
                                             } catch (e: CancellationException) {
                                                 throw e
                                             } catch (t: Exception) {
                                                 Log.e("HifzScreen", "Unexpected error in recitation evaluation", t)
-                                                errorMessage = "Tajweed verification safely completed. Please try again."
+                                                errorMessage = "Recitation review couldn't be completed. Check your connection and try again."
                                             } finally {
                                                 isEvaluating = false
                                             }
@@ -665,7 +668,7 @@ fun HifzRecordingScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = if (isRecording) "Listening with Groq Whisper... Release when finished" else "Hold to Record Recitation",
+                text = if (isRecording) "Recording... Release when finished" else "Hold to Record Recitation",
                 color = if (isRecording) CrimsonError else DeepRoyalEmerald,
                 fontSize = 13.5.sp,
                 fontWeight = FontWeight.Bold
@@ -686,7 +689,7 @@ fun HifzRecordingScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Transcribing with Whisper & Analyzing with Llama-3...",
+                        text = "Transcribing and comparing the recited words...",
                         fontSize = 12.5.sp,
                         color = DeepRoyalEmerald,
                         fontWeight = FontWeight.Medium
@@ -801,7 +804,7 @@ fun HifzRecordingScreen(
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 Text(
-                                    text = "GROQ WHISPER DETECTED RECITATION:",
+                                    text = "TRANSCRIBED RECITATION:",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = CharcoalPrimary.copy(alpha = 0.6f)
@@ -818,11 +821,23 @@ fun HifzRecordingScreen(
                             }
                         }
 
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (result.isAccurate) {
+                                "The transcript matches the selected text."
+                            } else {
+                                "The transcript differs from the selected text; review the comparison below."
+                            },
+                            color = if (result.isAccurate) DeepRoyalEmerald else CrimsonError,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // Llama-3 AI Teacher Feedback
+                        // Feedback is based on the transcribed text, not audio.
                         Text(
-                            text = "TEACHER CORRECTIONS & TAJWEED FEEDBACK:",
+                            text = "AI TEXT-COMPARISON FEEDBACK:",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = PlatinumGold
