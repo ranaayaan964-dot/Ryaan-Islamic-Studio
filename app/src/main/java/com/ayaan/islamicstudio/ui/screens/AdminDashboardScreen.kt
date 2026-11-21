@@ -155,10 +155,7 @@ fun AdminDashboardScreen(
         users = users,
         keys = proKeys,
         messages = messages,
-        reports = reports,
-        syncTotal = syncSummary.total,
-        syncActive = syncSummary.active,
-        syncRemoved = syncSummary.removed,
+        reports = reports
     )
 
     BackHandler(enabled = !isLoading && isAuthorized) {
@@ -1743,19 +1740,12 @@ class AyaanAdminBridge(
         users: List<UserEntity>,
         keys: List<ProLicenseKeyEntity>,
         messages: List<AdminMessageEntity>,
-        reports: List<UserReportEntity>,
-        syncTotal: Int,
-        syncActive: Int,
-        syncRemoved: Int
+        reports: List<UserReportEntity>
     ) {
         this.users = users
         this.keys = keys
         this.messages = messages
         this.reports = reports
-        latestSyncSummary = JSONObject()
-            .put("total", syncTotal)
-            .put("active", syncActive)
-            .put("removed", syncRemoved)
     }
 
     @JavascriptInterface

@@ -82,13 +82,13 @@ object AdhanSoundPlayer {
                         }
                     }
                     setOnPreparedListener { preparedPlayer ->
-                        if (isPlaying && mediaPlayer === preparedPlayer) preparedPlayer.start()
+                        if (this@AdhanSoundPlayer.isPlaying && mediaPlayer === preparedPlayer) preparedPlayer.start()
                         else preparedPlayer.release()
                     }
                     setOnErrorListener { failedPlayer, _, _ ->
                         failedPlayer.release()
                         if (mediaPlayer === failedPlayer) mediaPlayer = null
-                        if (isPlaying) playMirror(index + 1)
+                        if (this@AdhanSoundPlayer.isPlaying) playMirror(index + 1)
                         true
                     }
                 }
@@ -137,13 +137,13 @@ object AdhanSoundPlayer {
                     }
                 }
                 setOnPreparedListener { preparedPlayer ->
-                    if (isPlaying && mediaPlayer === preparedPlayer) preparedPlayer.start()
+                    if (this@AdhanSoundPlayer.isPlaying && mediaPlayer === preparedPlayer) preparedPlayer.start()
                     else preparedPlayer.release()
                 }
                 setOnErrorListener { failedPlayer, _, _ ->
                     failedPlayer.release()
                     if (mediaPlayer === failedPlayer) mediaPlayer = null
-                    isPlaying = false
+                    this@AdhanSoundPlayer.isPlaying = false
                     restoreAlarmVolume()
                     onComplete?.invoke()
                     true

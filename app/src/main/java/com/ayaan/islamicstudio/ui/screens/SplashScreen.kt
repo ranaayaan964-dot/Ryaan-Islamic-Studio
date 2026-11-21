@@ -280,6 +280,7 @@ fun SplashScreen(
                     .navigationBarsPadding()
             ) {
                 val isWideLandscape = maxWidth >= 720.dp && maxHeight <= 620.dp
+                val isCompact = maxHeight <= 720.dp || maxWidth <= 360.dp
                 val horizontalPadding = if (isWideLandscape) 36.dp else 22.dp
                 val emblemSize = when {
                     isWideLandscape -> 172.dp
@@ -337,12 +338,12 @@ fun SplashScreen(
                             haloRotation = haloRotation,
                             shimmer = shimmer,
                             todayLabel = todayLabel,
-                            compact = maxHeight <= 720.dp || maxWidth <= 360.dp
+                            compact = isCompact
                         )
                         Spacer(modifier = Modifier.height(18.dp))
                         SplashLoadingPanel(
                             progress = loadingProgress.value,
-                            compact = maxHeight <= 720.dp || maxWidth <= 360.dp
+                            compact = isCompact
                         )
                         Spacer(modifier = Modifier.height(14.dp))
                         SplashFooter()
@@ -580,8 +581,7 @@ private fun SplashMedallion(
                     )
                     drawContent()
                 }
-            },
-        contentAlignment = Alignment.Center
+            }
     )
 }
 

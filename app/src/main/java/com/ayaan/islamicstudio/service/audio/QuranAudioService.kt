@@ -349,7 +349,7 @@ class QuranAudioService : Service() {
     }
 
     fun selectQari(qari: QariProfile) {
-        changeReciter(qari.id)
+        changeReciter(qari.id.name)
     }
 
     fun changeReciter(qariId: String) {
