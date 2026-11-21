@@ -12,14 +12,9 @@ const ALLOWED_AUDIO_TYPES = new Set(["audio/m4a", "audio/mp4", "audio/wav", "aud
 const MODELS = Object.freeze({
   gemini: Object.freeze({
     text: new Set([
-      "gemini-1.5-flash",
+      "gemini-2.5-flash",
       "gemini-2.0-flash",
       "gemini-2.0-flash-lite",
-      "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
-      "gemini-3.1-pro-preview",
-      "gemini-3.1-flash-lite-preview",
-      "gemini-3.5-flash",
     ]),
     image: new Set(["gemini-2.5-flash-image"]),
   }),
@@ -27,12 +22,15 @@ const MODELS = Object.freeze({
     text: new Set([
       "llama-3.3-70b-versatile",
       "llama-3.1-8b-instant",
-      "gemma2-9b-it",
+    ]),
+    vision: new Set([
+      "meta-llama/llama-4-scout-17b-16e-instruct",
+      "llama-3.2-11b-vision-preview",
     ]),
   }),
 });
 const LIVE_MODELS = new Set(["gemini-2.0-flash-exp"]);
-const GROQ_TRANSCRIPTION_MODELS = new Set(["whisper-large-v3"]);
+const GROQ_TRANSCRIPTION_MODELS = new Set(["whisper-large-v3-turbo", "whisper-large-v3"]);
 const AUDIO_TYPES = new Map([
   ["audio/m4a", "m4a"],
   ["audio/mp4", "mp4"],
@@ -188,12 +186,31 @@ function validateGroqPayload(model, payload) {
     if (
       !isRecord(message) ||
       Object.keys(message).some((key) => !["role", "content"].includes(key)) ||
-      !["system", "user", "assistant"].includes(message.role) ||
-      typeof message.content !== "string"
+      !["system", "user", "assistant"].includes(message.role)
     ) {
       throw new Error("Groq message is invalid");
     }
-    totalChars += message.content.length;
+    if (typeof message.content === "string") {
+      totalChars += message.content.length;
+    } else if (Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (!isRecord(part)) throw new Error("Groq multimodal content is invalid");
+        if (part.type === "text" && typeof part.text === "string") {
+          totalChars += part.text.length;
+        } else if (
+          part.type === "image_url" &&
+          isRecord(part.image_url) &&
+          typeof part.image_url.url === "string" &&
+          /^data:image\/(jpeg|png|webp);base64,/i.test(part.image_url.url)
+        ) {
+          continue;
+        } else {
+          throw new Error("Groq multimodal content is invalid");
+        }
+      }
+    } else {
+      throw new Error("Groq message content is invalid");
+    }
   }
   if (totalChars === 0 || totalChars > MAX_PROMPT_CHARS) {
     throw new Error(`Groq message content must total at most ${MAX_PROMPT_CHARS} characters`);
@@ -205,6 +222,13 @@ function validateGroqPayload(model, payload) {
   if (payload.max_tokens !== undefined &&
       (!Number.isInteger(payload.max_tokens) || payload.max_tokens < 1 || payload.max_tokens > MAX_OUTPUT_TOKENS)) {
     throw new Error(`max_tokens must be an integer between 1 and ${MAX_OUTPUT_TOKENS}`);
+  }
+  const hasImage = payload.messages.some((message) =>
+    Array.isArray(message.content) && message.content.some((part) => part?.type === "image_url")
+  );
+  const allowedModels = hasImage ? MODELS.groq.vision : MODELS.groq.text;
+  if (!allowedModels.has(model)) {
+    throw new Error("model is not allowed for this Groq request type");
   }
   return payload;
 }
@@ -238,7 +262,7 @@ function validateRequestBody(body) {
 
   if (action === "transcribe") {
     if (body.provider !== "groq" || !GROQ_TRANSCRIPTION_MODELS.has(body.model)) {
-      throw new Error("transcribe requires Groq whisper-large-v3");
+      throw new Error("transcribe requires a live Groq Whisper model");
     }
     if (
       !isRecord(body.payload) ||

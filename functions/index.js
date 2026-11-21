@@ -1,6 +1,7 @@
 const { createHash } = require("node:crypto");
 const { initializeApp, getApps } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
+const { getAppCheck } = require("firebase-admin/app-check");
 const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 const { defineSecret } = require("firebase-functions/params");
 const { onRequest } = require("firebase-functions/v2/https");
@@ -182,6 +183,16 @@ exports.aiScholarProxy = onRequest(
       decodedToken = await getAuth().verifyIdToken(match[1]);
     } catch {
       return sendJson(res, 401, { error: "Firebase ID token is invalid or expired" });
+    }
+
+    const appCheckToken = req.get("x-firebase-appcheck") || "";
+    if (!appCheckToken) {
+      return sendJson(res, 401, { error: "Firebase App Check token is required" });
+    }
+    try {
+      await getAppCheck().verifyToken(appCheckToken);
+    } catch {
+      return sendJson(res, 401, { error: "Firebase App Check token is invalid" });
     }
 
     let request;

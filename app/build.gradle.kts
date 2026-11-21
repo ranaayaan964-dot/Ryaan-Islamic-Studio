@@ -1,4 +1,4 @@
-﻿import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 import java.util.Properties
 
 plugins {
@@ -28,18 +28,14 @@ fun resolveSecret(name: String): String =
 fun String.toBuildConfigStringLiteral(): String =
   "\"${replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n").replace("$", "\\$")}\""
 
-val geminiApiKey = resolveSecret("GEMINI_API_KEY")
-val groqApiKey = resolveSecret("GROQ_API_KEY")
-val groqApiKey2 = resolveSecret("GROQ_API_KEY2")
 val gmailSenderEmail = resolveSecret("GMAIL_SENDER_EMAIL").ifBlank { "ayianrana20133@gmail.com" }
-val gmailAppPassword = resolveSecret("GMAIL_16_DIGIT_APP_PASSWORD")
 val proSupportEmail = resolveSecret("PRO_SUPPORT_EMAIL").ifBlank { "ranasalar964@gmail.com" }
 val unityGameId = resolveSecret("UNITY_GAME_ID").ifBlank { "800424750" }
 val aiProxyBaseUrl = resolveSecret("AI_PROXY_BASE_URL")
   .ifBlank { "https://us-central1-ryaan-islamic-studio.cloudfunctions.net/aiScholarProxy" }
 
 android {
-  namespace = "com.example"
+  namespace = "com.ayaan.islamicstudio"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
@@ -50,11 +46,7 @@ android {
     versionName = "1.1.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    buildConfigField("String", "GEMINI_API_KEY", geminiApiKey.toBuildConfigStringLiteral())
-    buildConfigField("String", "GROQ_API_KEY", groqApiKey.toBuildConfigStringLiteral())
-    buildConfigField("String", "GROQ_API_KEY2", groqApiKey2.toBuildConfigStringLiteral())
     buildConfigField("String", "GMAIL_SENDER_EMAIL", gmailSenderEmail.toBuildConfigStringLiteral())
-    buildConfigField("String", "GMAIL_16_DIGIT_APP_PASSWORD", gmailAppPassword.toBuildConfigStringLiteral())
     buildConfigField("String", "PRO_SUPPORT_EMAIL", proSupportEmail.toBuildConfigStringLiteral())
     buildConfigField("String", "UNITY_GAME_ID", unityGameId.toBuildConfigStringLiteral())
     buildConfigField("String", "AI_PROXY_BASE_URL", aiProxyBaseUrl.toBuildConfigStringLiteral())
@@ -131,6 +123,7 @@ dependencies {
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   implementation(libs.accompanist.permissions)
+  implementation("com.google.firebase:firebase-appcheck-playintegrity")
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.camera.camera2)
   implementation(libs.androidx.camera.core)

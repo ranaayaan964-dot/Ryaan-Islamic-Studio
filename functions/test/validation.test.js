@@ -48,14 +48,9 @@ test("accepts Gemini native text payloads and preserves conversation/system inst
 
 test("accepts every configured Gemini and Groq text model", () => {
   for (const model of [
-    "gemini-1.5-flash",
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
     "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-3.1-pro-preview",
-    "gemini-3.1-flash-lite-preview",
-    "gemini-3.5-flash",
   ]) {
     assert.doesNotThrow(() => validateRequestBody({
       provider: "gemini",
@@ -63,7 +58,7 @@ test("accepts every configured Gemini and Groq text model", () => {
       payload: geminiPayload(),
     }));
   }
-  for (const model of ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]) {
+  for (const model of ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]) {
     assert.doesNotThrow(() => validateRequestBody({
       provider: "groq",
       model,
@@ -126,6 +121,9 @@ test("rejects unlisted models and unsafe provider payload shapes", () => {
     { provider: "groq", model: "llama-3.3-70b-versatile", payload: { ...groqPayload(), apiKey: "not allowed" } },
     { provider: "groq", model: "llama-3.3-70b-versatile", payload: { ...groqPayload(), max_tokens: 2049 } },
     { provider: "groq", model: "llama-3.3-70b-versatile", payload: { ...groqPayload(), model: "other-model" } },
+    { provider: "gemini", model: "gemini-3.5-flash", payload: geminiPayload() },
+    { provider: "gemini", model: "gemini-3.1-pro-preview", payload: geminiPayload() },
+    { provider: "groq", model: "gemma2-9b-it", payload: groqPayload("gemma2-9b-it") },
   ];
   for (const body of invalidRequests) {
     assert.throws(() => validateRequestBody(body));
