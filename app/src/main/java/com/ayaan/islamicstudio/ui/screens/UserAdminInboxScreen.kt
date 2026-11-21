@@ -151,8 +151,8 @@ fun UserAdminInboxScreen(onNavigateBack: () -> Unit) {
 private fun UserReportCard(report: UserReportEntity) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(10.dp)) {
-            Text("${report.subject} • ${report.status}", style = MaterialTheme.typography.titleSmall)
-            Text("${report.category} • ${DateFormat.getDateTimeInstance().format(Date(report.timestamp))}")
+            Text("${report.subject} â€¢ ${report.status}", style = MaterialTheme.typography.titleSmall)
+            Text("${report.category} â€¢ ${DateFormat.getDateTimeInstance().format(Date(report.timestamp))}")
             Text(report.description)
             if (report.adminReply.isNotBlank()) Text("Admin reply: ${report.adminReply}")
         }

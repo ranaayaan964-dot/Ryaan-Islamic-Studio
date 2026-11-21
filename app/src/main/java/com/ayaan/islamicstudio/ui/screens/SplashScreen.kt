@@ -1,17 +1,19 @@
 package com.ayaan.islamicstudio.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,41 +31,38 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ayaan.islamicstudio.data.database.AppDatabase
@@ -71,507 +71,663 @@ import com.ayaan.islamicstudio.data.quran.database.QuranDatabase
 import com.ayaan.islamicstudio.data.repository.LocationRepository
 import com.ayaan.islamicstudio.data.repository.SettingsRepository
 import com.ayaan.islamicstudio.data.repository.ThemeSettingsRepository
+import com.ayaan.islamicstudio.security.SessionManager
+import com.ayaan.islamicstudio.ui.components.LuxuryAmbientBackdrop
 import com.ayaan.islamicstudio.util.PrayerCalculator
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 
-/**
- * MODULE 1: CINEMATIC LUXURY SPLASH SCREEN & CREATOR BRANDING
- * - Deep luxury pulsing radial gradient
- * - Center Emblem: Glowing vector Kaaba & Crescent with particle halo
- * - App Title: "AYAAN ISLAMIC STUDIO" with metallic gold text styling
- * - Creator Signature: "Created by Ayaan" & "Powered by Ayaan Studio"
- *   with staggered 1.2s fade-in & floating glow
- * - Exactly 5000ms - 6000ms preloading window initializing Room, DataStore & Prayer times
- */
+private val SplashGold = Color(0xFFF5D06B)
+private val SplashGoldDeep = Color(0xFFD4AF37)
+private val SplashEmerald = Color(0xFF0FB98A)
+private val SplashIvory = Color(0xFFFFF8E8)
+private const val SPLASH_DURATION_MILLIS = 2400
+
 @Composable
 fun SplashScreen(
     onNavigateNext: (isLoggedIn: Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    val configuration = LocalConfiguration.current
-    val isCompactLayout = configuration.screenWidthDp < 380 || configuration.screenHeightDp < 720
-    val emblemSize = if (isCompactLayout) 180.dp else 230.dp
-    var isUserLoggedIn by remember { mutableStateOf(false) }
-    var preloadStatus by remember { mutableStateOf("Initializing Sacred Architecture...") }
-    var signatureVisible by remember { mutableStateOf(false) }
-
-    // Floating glow animation for Creator Signature
-    val signatureFloatGlow = remember { Animatable(0f) }
-
-    // Preload & Exact Duration (5500ms total window)
-    LaunchedEffect(Unit) {
-        val startTime = System.currentTimeMillis()
-
-        delay(1200)
-        signatureVisible = true
-        signatureFloatGlow.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(1400, easing = FastOutSlowInEasing)
-        )
+    val todayLabel = remember {
+        SimpleDateFormat("EEEE, dd MMM yyyy", Locale.ENGLISH).format(Date())
     }
-
-    LaunchedEffect(Unit) {
-        val startTime = System.currentTimeMillis()
-
-            val loggedIn = withContext(Dispatchers.IO) {
-            // 1. Initialize Room Database & Quran Engine
-            val appDb = AppDatabase.getInstance(context)
-                appDb.userDao().getActiveSession()
-
-            val quranDb = QuranDatabase.getDatabase(context)
-            quranDb.quranDao().getSurahCount()
-
-            // 2. Warm up SharedPreferences / DataStore session & EncryptedSharedPreferences
-            val sessionManager = com.ayaan.islamicstudio.security.SessionManager.getInstance(context)
-            val settingsRepo = SettingsRepository.getInstance(context)
-            val themeRepo = ThemeSettingsRepository.getInstance(context)
-            themeRepo.getTheme()
-
-            val hasSecureSession = sessionManager.isLoggedIn()
-            val hasDataStoreSession = settingsRepo.isLoggedIn()
-            val hasDbSession = UserSessionManager.hasActiveSession(context)
-                val hasExistingSession = hasSecureSession || hasDataStoreSession || hasDbSession
-
-                if (hasExistingSession) {
-                if (!hasSecureSession && hasDbSession) {
-                    sessionManager.setLoggedIn(true)
-                }
-                if (!hasDataStoreSession) {
-                    settingsRepo.setLoggedIn(true)
-                }
-            }
-
-            // 3. Fetch or cache prayer times for today
-            val defaultLoc = LocationRepository.getDefaultLocation()
-            PrayerCalculator.calculatePrayerTimes(defaultLoc.latitude, defaultLoc.longitude)
-
-                hasExistingSession
-        }
-        preloadStatus = "Ayaan Islamic Studio Ready"
-        isUserLoggedIn = loggedIn
-
-        // Enforce exact 5500ms duration (within 5000ms - 6000ms requirement)
-        val elapsed = System.currentTimeMillis() - startTime
-        val remainingDelay = (5500L - elapsed).coerceIn(0L, 6000L)
-        delay(remainingDelay)
-
-        // Seamless transition destroying splash from backstack
-        onNavigateNext(isUserLoggedIn)
-    }
-
-    // Infinite transitions for pulsing radial gradient and particle halo
-    val infiniteTransition = rememberInfiniteTransition(label = "SplashInfinite")
-
-    // Radial gradient pulse
-    val bgPulseRadius by infiniteTransition.animateFloat(
-        initialValue = 0.75f,
-        targetValue = 1.15f,
+    val loadingProgress = remember { Animatable(0f) }
+    val emblemEntrance = remember { Animatable(0.78f) }
+    val infiniteTransition = rememberInfiniteTransition(label = "LuxurySplashMotion")
+    val ambientPulse by infiniteTransition.animateFloat(
+        initialValue = 0.88f,
+        targetValue = 1.08f,
         animationSpec = infiniteRepeatable(
-            animation = tween(3400, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 5200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "RadialPulse"
+        label = "AmbientPulse"
     )
-
-    // Center emblem breathing scale
-    val emblemScale by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.05f,
+    val latticeRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
+            animation = tween(durationMillis = 46000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
         ),
-        label = "EmblemScale"
+        label = "LatticeRotation"
     )
-
-    // Shimmering particle halo rotation & shimmer phase
     val haloRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(20000, easing = LinearEasing),
+            animation = tween(durationMillis = 22000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "HaloRotation"
     )
-
-    val shimmerGlow by infiniteTransition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 0.95f,
+    val shimmer by infiniteTransition.animateFloat(
+        initialValue = 0.34f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1600, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 1800, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "ShimmerGlow"
+        label = "GoldShimmer"
     )
 
-    // Deep Luxury Radial Background Canvas
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("cinematic_splash_screen")
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val center = Offset(size.width / 2f, size.height * 0.42f)
-            val maxDimension = maxOf(size.width, size.height)
-            val gradientRadius = maxDimension * bgPulseRadius
-
-            // Luxury radial gradient pulsing from deep obsidian-emerald core to abyss
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF0A1C16), // Deep Emerald Heart
-                        Color(0xFF06120E), // Obsidian Emerald
-                        Color(0xFF030706), // Deep Obsidian Abyss
-                        Color(0xFF020403)  // Pure Dark Canvas
-                    ),
-                    center = center,
-                    radius = gradientRadius
+    LaunchedEffect(Unit) {
+        launch {
+            emblemEntrance.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
                 )
             )
         }
 
-        // Foreground Content
-        BoxWithConstraints(
+        val preloadResult = async(Dispatchers.IO) {
+            val appDb = AppDatabase.getInstance(context)
+            appDb.userDao().getActiveSession()
+
+            val quranDb = QuranDatabase.getDatabase(context)
+            quranDb.quranDao().getSurahCount()
+
+            val sessionManager = SessionManager.getInstance(context)
+            val settingsRepository = SettingsRepository.getInstance(context)
+            val themeRepository = ThemeSettingsRepository.getInstance(context)
+            themeRepository.getTheme()
+
+            val hasSecureSession = sessionManager.isLoggedIn()
+            val hasDataStoreSession = settingsRepository.isLoggedIn()
+            val hasDatabaseSession = UserSessionManager.hasActiveSession(context)
+            val hasExistingSession = hasSecureSession || hasDataStoreSession || hasDatabaseSession
+
+            if (hasExistingSession) {
+                if (!hasSecureSession && hasDatabaseSession) {
+                    sessionManager.setLoggedIn(true)
+                }
+                if (!hasDataStoreSession) {
+                    settingsRepository.setLoggedIn(true)
+                }
+            }
+
+            val location = LocationRepository.getDefaultLocation()
+            PrayerCalculator.calculatePrayerTimes(location.latitude, location.longitude)
+            hasExistingSession
+        }
+
+        loadingProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = SPLASH_DURATION_MILLIS,
+                easing = FastOutSlowInEasing
+            )
+        )
+        onNavigateNext(preloadResult.await())
+    }
+
+    LuxuryAmbientBackdrop(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("cinematic_splash_screen")
+    ) {
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .heightIn(min = maxHeight)
-                    .padding(horizontal = if (isCompactLayout) 16.dp else 24.dp, vertical = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-            // Top Subtle Brand Pill
-            Row(
-                modifier = Modifier
-                    .padding(top = 4.dp)
-                    .clip(RoundedCornerShape(30.dp))
-                    .background(Color(0x2010B981))
-                    .border(1.dp, Color(0x40D4AF37), RoundedCornerShape(30.dp))
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF10B981))
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "NEXT-GEN ISLAMIC ECOSYSTEM",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFFBBF24),
-                    letterSpacing = if (isCompactLayout) 1.sp else 2.sp
-                )
-            }
-
-            // Center Hero: Emblem, Particle Halo & Metallic Title
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                // Vector Kaaba & Crescent Emblem with Particle Halo
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(emblemSize)
-                        .scale(emblemScale)
-                ) {
-                    // Compose Canvas for Particle Halo & Sacred Kaaba / Crescent Vector
-                    Canvas(modifier = Modifier.size(emblemSize)) {
-                        val center = Offset(size.width / 2f, size.height / 2f)
-                        val outerRadius = size.width * 0.46f
-
-                        // 1. Particle Halo: 24 glowing shimmering particles orbiting the center
-                        val particleCount = 24
-                        for (i in 0 until particleCount) {
-                            val angleDeg = (i * (360f / particleCount)) + haloRotation
-                            val angleRad = angleDeg * (PI.toFloat() / 180f)
-                            val distance = outerRadius * (0.78f + 0.22f * sin(angleRad * 2f + shimmerGlow))
-                            val px = center.x + distance * cos(angleRad)
-                            val py = center.y + distance * sin(angleRad)
-                            val particleRadius = if (i % 3 == 0) 3.5f else 2.2f
-                            val particleAlpha = ((0.35f + 0.65f * sin(angleRad + shimmerGlow * 3f)).coerceIn(0.2f, 1f))
-
-                            drawCircle(
-                                color = if (i % 2 == 0) Color(0xFFD4AF37).copy(alpha = particleAlpha)
-                                        else Color(0xFF10B981).copy(alpha = particleAlpha),
-                                radius = particleRadius,
-                                center = Offset(px, py)
-                            )
-                        }
-
-                        // 2. Concentric Orbit Rings
-                        drawCircle(
-                            color = Color(0x30D4AF37),
-                            radius = outerRadius * 0.88f,
-                            center = center,
-                            style = Stroke(width = 1.2f, cap = StrokeCap.Round)
-                        )
-                        drawCircle(
-                            color = Color(0x2010B981),
-                            radius = outerRadius * 0.72f,
-                            center = center,
-                            style = Stroke(width = 1.0f)
-                        )
-
-                        // 3. Glowing Crescent Moon Vector
-                        val crescentPath = Path().apply {
-                            val cr = outerRadius * 0.58f
-                            // Outer arc
-                            addArc(
-                                oval = androidx.compose.ui.geometry.Rect(
-                                    center.x - cr,
-                                    center.y - cr,
-                                    center.x + cr,
-                                    center.y + cr
-                                ),
-                                startAngleDegrees = 40f,
-                                sweepAngleDegrees = 280f
-                            )
-                        }
-                        drawPath(
-                            path = crescentPath,
-                            brush = Brush.sweepGradient(
-                                listOf(
-                                    Color(0xFFD4AF37),
-                                    Color(0xFFFBBF24),
-                                    Color(0xFF10B981),
-                                    Color(0xFFD4AF37)
-                                ),
-                                center = center
+                .drawWithCache {
+                    val center = Offset(size.width / 2f, size.height * 0.39f)
+                    val backgroundBrush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF073529),
+                            Color(0xFF041F18),
+                            Color(0xFF031A14),
+                            Color(0xFF020C09)
+                        ),
+                        center = center,
+                        radius = size.maxDimension * 0.86f
+                    )
+                    val ambientGoldBrush = Brush.radialGradient(
+                        colors = listOf(
+                            SplashGold.copy(alpha = 0.17f),
+                            SplashGoldDeep.copy(alpha = 0.055f),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = size.minDimension * 0.44f
+                    )
+                    val latticeCenter = Offset(size.width * 0.81f, size.height * 0.18f)
+                    val latticePath = createRubElHizbPath(
+                        center = latticeCenter,
+                        radius = size.minDimension * 0.31f
+                    )
+                    val stars = List(18) { index ->
+                        CachedSplashStar(
+                            center = Offset(
+                                x = ((index * 47 + 13) % 97) / 97f * size.width,
+                                y = (0.035f + ((index * 29 + 7) % 41) / 100f) * size.height
                             ),
-                            style = Stroke(width = 3.5f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                        )
-
-                        // 4. Center Kaaba Cubic Emblem
-                        val boxSize = outerRadius * 0.48f
-                        val kLeft = center.x - boxSize / 2f
-                        val kTop = center.y - boxSize / 2f + 4f
-
-                        // Kaaba Base Black Cube
-                        drawRoundRect(
-                            color = Color(0xFF0F1714),
-                            topLeft = Offset(kLeft, kTop),
-                            size = Size(boxSize, boxSize),
-                            cornerRadius = CornerRadius(8f, 8f)
-                        )
-                        // Kaaba Outer Border
-                        drawRoundRect(
-                            color = Color(0xFFD4AF37),
-                            topLeft = Offset(kLeft, kTop),
-                            size = Size(boxSize, boxSize),
-                            cornerRadius = CornerRadius(8f, 8f),
-                            style = Stroke(width = 1.8f)
-                        )
-
-                        // Gold Kiswah Belt (Hizam)
-                        val beltY = kTop + boxSize * 0.22f
-                        val beltHeight = boxSize * 0.14f
-                        drawRect(
-                            brush = Brush.horizontalGradient(
-                                listOf(
-                                    Color(0xFFB45309),
-                                    Color(0xFFFBBF24),
-                                    Color(0xFFD4AF37),
-                                    Color(0xFFFBBF24)
-                                )
-                            ),
-                            topLeft = Offset(kLeft + 2f, beltY),
-                            size = Size(boxSize - 4f, beltHeight)
-                        )
-
-                        // Gold Door of Kaaba (Bab al-Kaaba)
-                        val doorWidth = boxSize * 0.22f
-                        val doorHeight = boxSize * 0.38f
-                        val doorX = kLeft + boxSize * 0.62f
-                        val doorY = kTop + boxSize * 0.52f
-                        drawRoundRect(
-                            color = Color(0xFFFBBF24),
-                            topLeft = Offset(doorX, doorY),
-                            size = Size(doorWidth, doorHeight),
-                            cornerRadius = CornerRadius(4f, 4f)
+                            radius = (1.15f + index % 3 * 0.65f).dp.toPx(),
+                            phase = ((index * 19) % 11) / 11f
                         )
                     }
 
-                    // Sacred Arabic Calligraphy center aura
-                    Box(
-                        modifier = Modifier
-                            .size(70.dp)
-                            .clip(CircleShape)
-                            .background(Color(0x20D4AF37)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "ﷲ",
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFEF08A),
-                            textAlign = TextAlign.Center
+                    onDrawBehind {
+                        drawRect(backgroundBrush)
+                        drawCircle(
+                            brush = ambientGoldBrush,
+                            radius = size.minDimension * 0.44f * ambientPulse,
+                            center = center
                         )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(if (isCompactLayout) 14.dp else 28.dp))
-
-                // APP TITLE: "AYAAN ISLAMIC STUDIO" with Metallic Gold Text Styling
-                val metallicGoldBrush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFFFEF3C7),
-                        Color(0xFFFBBF24),
-                        Color(0xFFD4AF37),
-                        Color(0xFFF59E0B),
-                        Color(0xFFFEF08A)
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(400f, 100f)
-                )
-
-                Text(
-                    text = "AYAAN ISLAMIC STUDIO",
-                    style = TextStyle(
-                        brush = metallicGoldBrush,
-                        fontSize = if (isCompactLayout) 20.sp else 24.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontFamily = FontFamily.Serif,
-                        letterSpacing = if (isCompactLayout) 2.sp else 4.sp,
-                        textAlign = TextAlign.Center
-                    ),
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "THE ULTIMATE SPIRITUAL SUPER APP",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF10B981),
-                    letterSpacing = if (isCompactLayout) 1.5.sp else 3.sp,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(if (isCompactLayout) 14.dp else 26.dp))
-
-                // Preload status indicator
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0x33000000))
-                        .border(1.dp, Color(0x3010B981), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 16.dp, vertical = 7.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(13.dp),
-                        strokeWidth = 2.dp,
-                        color = Color(0xFF10B981)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = preloadStatus,
-                        fontSize = 11.sp,
-                        color = Color(0xFFE2E8F0),
-                        maxLines = 1
-                    )
-                }
-            }
-
-            // CREATOR SIGNATURE (CRITICAL BRANDING)
-            // Anchored precisely at bottom with safe-area padding
-            // "Created by Ayaan" (16.sp, FontWeight.SemiBold, glowing serif)
-            // "Powered by Ayaan Studio" (12.sp, letterSpacing: 2.sp, metallic subtext)
-            // Staggered fade-in & floating glow activated after 1.2 seconds
-            AnimatedVisibility(
-                visible = signatureVisible,
-                enter = fadeIn(animationSpec = tween(900, easing = FastOutSlowInEasing)) +
-                        slideInVertically(
-                            initialOffsetY = { 40 },
-                            animationSpec = tween(900, easing = FastOutSlowInEasing)
-                        )
-            ) {
-                val glowAlpha = (0.55f + 0.45f * signatureFloatGlow.value * shimmerGlow)
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 12.dp)
-                        .testTag("creator_signature_branding")
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .shadow(
-                                elevation = (12 * signatureFloatGlow.value).dp,
-                                shape = RoundedCornerShape(22.dp),
-                                ambientColor = Color(0x40D4AF37),
-                                spotColor = Color(0x5010B981)
-                            )
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color(0x350F1F1C),
-                                        Color(0x50050B0A)
-                                    )
-                                )
-                            )
-                            .border(
-                                1.2.dp,
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        Color(0x4010B981),
-                                        Color(0xFFD4AF37).copy(alpha = glowAlpha),
-                                        Color(0x4010B981)
-                                    )
-                                ),
-                                RoundedCornerShape(22.dp)
-                            )
-                            .padding(horizontal = 28.dp, vertical = 14.dp)
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        rotate(
+                            degrees = latticeRotation,
+                            pivot = latticeCenter
                         ) {
-                            Text(
-                                text = "Created by Ayaan",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = FontFamily.Serif,
-                                color = Color(0xFFFEF3C7),
-                                textAlign = TextAlign.Center,
-                                letterSpacing = 0.5.sp,
-                                modifier = Modifier.alpha(glowAlpha)
+                            drawPath(
+                                path = latticePath,
+                                color = SplashGold.copy(alpha = 0.055f),
+                                style = Stroke(width = 1.2.dp.toPx())
                             )
-
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            Text(
-                                text = "POWERED BY AYAAN STUDIO",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFFFBBF24),
-                                textAlign = TextAlign.Center,
-                                letterSpacing = 2.sp
+                            for (ring in 0..2) {
+                                drawCircle(
+                                    color = SplashGold.copy(alpha = 0.024f + ring * 0.008f),
+                                    radius = size.minDimension * (0.085f + ring * 0.075f),
+                                    center = latticeCenter,
+                                    style = Stroke(width = 0.8.dp.toPx())
+                                )
+                            }
+                        }
+                        stars.forEach { star ->
+                            val starAlpha = (0.18f + shimmer * (0.35f + star.phase * 0.35f))
+                                .coerceIn(0.12f, 0.72f)
+                            drawCircle(
+                                color = SplashGold.copy(alpha = starAlpha),
+                                radius = star.radius,
+                                center = star.center
                             )
                         }
                     }
+                }
+        ) {
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+            ) {
+                val isWideLandscape = maxWidth >= 720.dp && maxHeight <= 620.dp
+                val horizontalPadding = if (isWideLandscape) 36.dp else 22.dp
+                val emblemSize = when {
+                    isWideLandscape -> 172.dp
+                    maxHeight <= 650.dp -> 164.dp
+                    maxWidth <= 360.dp -> 178.dp
+                    else -> 218.dp
+                }
+
+                if (isWideLandscape) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = horizontalPadding, vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(34.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            SplashBrandBlock(
+                                modifier = Modifier.weight(1.08f),
+                                emblemSize = emblemSize,
+                                entranceScale = emblemEntrance.value,
+                                ambientPulse = ambientPulse,
+                                haloRotation = haloRotation,
+                                shimmer = shimmer,
+                                todayLabel = todayLabel,
+                                compact = true
+                            )
+                            SplashLoadingPanel(
+                                modifier = Modifier.weight(0.92f),
+                                progress = loadingProgress.value,
+                                compact = true
+                            )
+                        }
+                        SplashFooter()
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .heightIn(min = maxHeight)
+                            .padding(horizontal = horizontalPadding, vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        SplashBrandBlock(
+                            emblemSize = emblemSize,
+                            entranceScale = emblemEntrance.value,
+                            ambientPulse = ambientPulse,
+                            haloRotation = haloRotation,
+                            shimmer = shimmer,
+                            todayLabel = todayLabel,
+                            compact = maxHeight <= 720.dp || maxWidth <= 360.dp
+                        )
+                        Spacer(modifier = Modifier.height(18.dp))
+                        SplashLoadingPanel(
+                            progress = loadingProgress.value,
+                            compact = maxHeight <= 720.dp || maxWidth <= 360.dp
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        SplashFooter()
                     }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun SplashBrandBlock(
+    modifier: Modifier = Modifier,
+    emblemSize: Dp,
+    entranceScale: Float,
+    ambientPulse: Float,
+    haloRotation: Float,
+    shimmer: Float,
+    todayLabel: String,
+    compact: Boolean
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+            color = SplashGold.copy(alpha = 0.9f + shimmer * 0.1f),
+            fontSize = if (compact) 19.sp else 23.sp,
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .alpha(0.88f + shimmer * 0.12f)
+        )
+
+        Spacer(modifier = Modifier.height(if (compact) 8.dp else 14.dp))
+
+        SplashMedallion(
+            size = emblemSize,
+            scale = entranceScale * ambientPulse,
+            haloRotation = haloRotation,
+            shimmer = shimmer
+        )
+
+        Spacer(modifier = Modifier.height(if (compact) 10.dp else 18.dp))
+
+        Text(
+            text = "AYAAN ISLAMIC STUDIO",
+            style = TextStyle(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFFFF7D6),
+                        SplashGold,
+                        SplashGoldDeep,
+                        Color(0xFFFFE89A)
+                    )
+                ),
+                fontSize = if (compact) 20.sp else 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = FontFamily.Serif,
+                letterSpacing = if (compact) 2.sp else 3.2.sp,
+                textAlign = TextAlign.Center
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(9.dp))
+
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color(0x22D4AF37))
+                .border(1.dp, SplashGold.copy(alpha = 0.72f), RoundedCornerShape(999.dp))
+                .padding(horizontal = 16.dp, vertical = 7.dp)
+        ) {
+            Text(
+                text = "🕌 TODAY PRAYER TIME • NOBLE QURAN",
+                color = SplashGold,
+                fontSize = if (compact) 10.sp else 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.8.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color(0x25064E3B))
+                .border(1.dp, SplashEmerald.copy(alpha = 0.38f), RoundedCornerShape(999.dp))
+                .padding(horizontal = 13.dp, vertical = 6.dp)
+        ) {
+            Text(
+                text = "${todayLabel.uppercase(Locale.ENGLISH)} • PRAYER READY",
+                color = SplashIvory.copy(alpha = 0.88f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.5.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun SplashMedallion(
+    size: Dp,
+    scale: Float,
+    haloRotation: Float,
+    shimmer: Float
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .scale(scale)
+            .drawWithCache {
+                val center = Offset(this.size.width / 2f, this.size.height / 2f)
+                val outerRadius = this.size.minDimension * 0.39f
+                val medallionBrush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF12684F),
+                        Color(0xFF064E3B),
+                        Color(0xFF03271E)
+                    ),
+                    center = center,
+                    radius = outerRadius
+                )
+                val goldRingBrush = Brush.sweepGradient(
+                    colors = listOf(
+                        SplashGoldDeep,
+                        SplashGold,
+                        Color(0xFFFFF0B2),
+                        SplashEmerald,
+                        SplashGoldDeep
+                    ),
+                    center = center
+                )
+                val mihrabPath = Path().apply {
+                    val width = outerRadius * 0.72f
+                    val height = outerRadius * 0.9f
+                    moveTo(center.x - width / 2f, center.y + height * 0.46f)
+                    lineTo(center.x - width / 2f, center.y - height * 0.04f)
+                    quadraticBezierTo(
+                        center.x - width / 2f,
+                        center.y - height * 0.56f,
+                        center.x,
+                        center.y - height * 0.69f
+                    )
+                    quadraticBezierTo(
+                        center.x + width / 2f,
+                        center.y - height * 0.56f,
+                        center.x + width / 2f,
+                        center.y - height * 0.04f
+                    )
+                    lineTo(center.x + width / 2f, center.y + height * 0.46f)
+                    close()
+                }
+                val dashEffect = PathEffect.dashPathEffect(
+                    intervals = floatArrayOf(7.dp.toPx(), 6.dp.toPx())
+                )
+
+                onDrawWithContent {
+                    drawCircle(
+                        brush = medallionBrush,
+                        radius = outerRadius,
+                        center = center
+                    )
+                    drawCircle(
+                        brush = goldRingBrush,
+                        radius = outerRadius,
+                        center = center,
+                        style = Stroke(width = 3.2.dp.toPx())
+                    )
+                    drawCircle(
+                        color = SplashGold.copy(alpha = 0.32f + shimmer * 0.38f),
+                        radius = outerRadius * 0.77f,
+                        center = center,
+                        style = Stroke(width = 1.3.dp.toPx())
+                    )
+                    rotate(degrees = haloRotation, pivot = center) {
+                        drawCircle(
+                            color = SplashGold.copy(alpha = 0.68f),
+                            radius = outerRadius * 1.12f,
+                            center = center,
+                            style = Stroke(
+                                width = 1.6.dp.toPx(),
+                                pathEffect = dashEffect,
+                                cap = StrokeCap.Round
+                            )
+                        )
+                    }
+
+                    val crescentRadius = outerRadius * 0.24f
+                    val crescentCenter = Offset(center.x + outerRadius * 0.27f, center.y - outerRadius * 0.47f)
+                    drawCircle(
+                        color = SplashGold,
+                        radius = crescentRadius,
+                        center = crescentCenter
+                    )
+                    drawCircle(
+                        color = Color(0xFF064E3B),
+                        radius = crescentRadius * 0.98f,
+                        center = Offset(
+                            x = crescentCenter.x + crescentRadius * 0.42f,
+                            y = crescentCenter.y - crescentRadius * 0.12f
+                        )
+                    )
+
+                    drawPath(
+                        path = mihrabPath,
+                        color = SplashGold.copy(alpha = 0.2f),
+                    )
+                    drawPath(
+                        path = mihrabPath,
+                        brush = goldRingBrush,
+                        style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round)
+                    )
+                    drawCircle(
+                        color = SplashGold.copy(alpha = 0.9f),
+                        radius = outerRadius * 0.038f,
+                        center = Offset(center.x, center.y + outerRadius * 0.09f)
+                    )
+                    drawLine(
+                        color = SplashGold.copy(alpha = 0.8f),
+                        start = Offset(center.x, center.y + outerRadius * 0.15f),
+                        end = Offset(center.x, center.y + outerRadius * 0.45f),
+                        strokeWidth = 1.5.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                    drawContent()
+                }
+            },
+        contentAlignment = Alignment.Center
+    )
+}
+
+@Composable
+private fun SplashLoadingPanel(
+    modifier: Modifier = Modifier,
+    progress: Float,
+    compact: Boolean
+) {
+    val clampedProgress = progress.coerceIn(0f, 1f)
+    val percentage = (clampedProgress * 100f).roundToInt()
+    val stageLabel = loadingStage(clampedProgress)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .widthIn(max = 340.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color(0x29000000))
+            .border(1.dp, SplashGold.copy(alpha = 0.24f), RoundedCornerShape(24.dp))
+            .padding(horizontal = if (compact) 16.dp else 20.dp, vertical = if (compact) 13.dp else 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "PREPARING YOUR SPIRITUAL DAY",
+                color = SplashIvory.copy(alpha = 0.64f),
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.1.sp
+            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(SplashGold.copy(alpha = 0.16f))
+                    .border(1.dp, SplashGold.copy(alpha = 0.5f), CircleShape)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "$percentage%",
+                    color = SplashGold,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(11.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = 0.08f))
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(999.dp)),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(clampedProgress)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                SplashGoldDeep,
+                                SplashGold,
+                                SplashEmerald
+                            )
+                        )
+                    )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        AnimatedContent(
+            targetState = stageLabel,
+            transitionSpec = {
+                fadeIn(tween(260)) togetherWith fadeOut(tween(180))
+            },
+            label = "SplashLoadingStage"
+        ) { label ->
+            Text(
+                text = label,
+                color = SplashIvory.copy(alpha = 0.92f),
+                fontSize = if (compact) 11.sp else 12.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                lineHeight = if (compact) 15.sp else 17.sp,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun SplashFooter() {
+    Text(
+        text = "Version 1.1.1 • Crafted with Devotion by Ayaan Studio",
+        color = SplashIvory.copy(alpha = 0.44f),
+        fontSize = 9.sp,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = 0.45.sp,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp, bottom = 4.dp)
+    )
+}
+
+private fun loadingStage(progress: Float): String = when {
+    progress < 0.25f -> "Initializing Today's Prayer Times..."
+    progress < 0.55f -> "Preparing 30-Para Noble Quran & Audio..."
+    progress < 0.85f -> "Verifying Secure Cloud Session..."
+    else -> "Bismillah — Welcome to Ayaan Islamic Studio"
+}
+
+private fun createRubElHizbPath(center: Offset, radius: Float): Path {
+    return Path().apply {
+        for (point in 0 until 16) {
+            val angle = point * (2f * PI.toFloat() / 16f) - PI.toFloat() / 2f
+            val pointRadius = if (point % 2 == 0) radius else radius * 0.54f
+            val x = center.x + cos(angle) * pointRadius
+            val y = center.y + sin(angle) * pointRadius
+            if (point == 0) {
+                moveTo(x, y)
+            } else {
+                lineTo(x, y)
+            }
+        }
+        close()
+        moveTo(center.x - radius * 0.72f, center.y - radius * 0.72f)
+        lineTo(center.x + radius * 0.72f, center.y + radius * 0.72f)
+        moveTo(center.x + radius * 0.72f, center.y - radius * 0.72f)
+        lineTo(center.x - radius * 0.72f, center.y + radius * 0.72f)
+    }
+}
+
+private data class CachedSplashStar(
+    val center: Offset,
+    val radius: Float,
+    val phase: Float
+)

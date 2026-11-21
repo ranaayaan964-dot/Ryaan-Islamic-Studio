@@ -6,6 +6,7 @@ import com.ayaan.islamicstudio.data.database.AdminMessageEntity
 import com.ayaan.islamicstudio.data.database.AppDatabase
 import com.ayaan.islamicstudio.data.database.UserEntity
 import com.ayaan.islamicstudio.data.database.UserReportEntity
+import com.ayaan.islamicstudio.security.AdminAccessPolicy
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -33,10 +34,7 @@ data class AdminUserSyncSummary(
 class AdminRepository(context: Context) {
     companion object {
         const val TAG = "AdminRepository"
-        val AUTHORIZED_ADMIN_EMAILS = setOf(
-            "ayianrana20133@gmail.com",
-            "ranasalar964@gmail.com"
-        )
+        val AUTHORIZED_ADMIN_EMAILS = AdminAccessPolicy.authorizedEmails
     }
 
     private val appContext = context.applicationContext
@@ -133,8 +131,11 @@ class AdminRepository(context: Context) {
 
     suspend fun isAdminSession(): Boolean = withContext(Dispatchers.IO) {
         val firebaseUser = auth.currentUser ?: return@withContext false
-        val verifiedEmailIsAuthorized = firebaseUser.isEmailVerified &&
-            firebaseUser.email?.trim()?.lowercase(Locale.US) in AUTHORIZED_ADMIN_EMAILS
+        val verifiedEmailIsAuthorized = AdminAccessPolicy.isAuthorized(
+            firebaseUser.email,
+            firebaseUser.isEmailVerified,
+            hasAdminClaim = false
+        )
         val hasAdminClaim = if (verifiedEmailIsAuthorized) {
             false
         } else {
@@ -147,7 +148,7 @@ class AdminRepository(context: Context) {
             }
         }
         val isAdmin = verifiedEmailIsAuthorized || hasAdminClaim
-        if (!isAdmin) return@withContext false
+        if (!isAdmin || auth.currentUser?.uid != firebaseUser.uid) return@withContext false
 
         try {
             val email = firebaseUser.email?.trim().orEmpty()
@@ -176,7 +177,7 @@ class AdminRepository(context: Context) {
             if (error is CancellationException) throw error
             Log.e(TAG, "Administrator verified, but their Room session could not be synchronized.", error)
         }
-        true
+        auth.currentUser?.uid == firebaseUser.uid
     }
 
     suspend fun syncUsersFromFirestore() = withContext(Dispatchers.IO) {

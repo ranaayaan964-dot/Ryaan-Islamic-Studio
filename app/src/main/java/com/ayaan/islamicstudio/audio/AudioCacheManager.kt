@@ -23,6 +23,9 @@ object AudioCacheManager {
 
     private const val TAG = "AudioCacheManager"
     private const val AUDIO_DIR = "islamic_sounds"
+    private const val AUDIO_CACHE_VERSION = 3
+    private const val AUDIO_CACHE_PREFS = "ayaan_audio_cache_prefs"
+    private const val CACHE_VERSION_KEY = "audio_cache_version"
     private val fallbackGenerationInProgress = Collections.synchronizedSet(mutableSetOf<String>())
     private val fallbackGenerationInProgressCallbacks = mutableMapOf<String, MutableList<() -> Unit>>()
     private val fallbackFileLocks = ConcurrentHashMap<String, Any>()
@@ -41,11 +44,18 @@ object AudioCacheManager {
         if (!dir.exists()) {
             dir.mkdirs()
         }
+        val preferences = context.getSharedPreferences(AUDIO_CACHE_PREFS, Context.MODE_PRIVATE)
+        val storedVersion = preferences.getInt(CACHE_VERSION_KEY, 0)
+        if (storedVersion != AUDIO_CACHE_VERSION) {
+            dir.listFiles()
+                ?.filter { it.isFile && (it.extension.equals("wav", true) || it.extension.equals("mp3", true)) }
+                ?.forEach { file ->
+                    runCatching { file.delete() }
+                        .onFailure { Log.w(TAG, "Could not purge old synthetic audio cache: ${file.name}") }
+                }
+            preferences.edit().putInt(CACHE_VERSION_KEY, AUDIO_CACHE_VERSION).apply()
+        }
         refreshCachedList(context)
-        IslamicSoundCatalog.allSounds
-            .filter { it.isBundledRaw && it.rawResName != null }
-            .filterNot { hasBundledResource(context, it) }
-            .forEach { ensureFallbackAudio(context, it) }
     }
 
     private fun getAudioDir(context: Context): File {
@@ -54,6 +64,26 @@ object AudioCacheManager {
 
     fun getLocalFileForSound(context: Context, soundId: String): File {
         return File(getAudioDir(context), "$soundId.mp3")
+    }
+
+    private fun isValidCachedMp3(file: File): Boolean {
+        if (!file.exists() || file.length() < 8192L) return false
+        return runCatching {
+            file.inputStream().use { input ->
+                val header = ByteArray(12)
+                val read = input.read(header)
+                if (read < 3) return@use false
+                val startsWithId3 = header.copyOfRange(0, 3).contentEquals("ID3".toByteArray())
+                val startsWithMp3Frame = header[0].toInt() and 0xFF == 0xFF &&
+                    (header[1].toInt() and 0xE0) == 0xE0 &&
+                    ((header[1].toInt() and 0x06) != 0x00)
+                val startsWithRiff = header.copyOfRange(0, 4).contentEquals("RIFF".toByteArray())
+                val startsWithOgg = header.copyOfRange(0, 4).contentEquals("OggS".toByteArray())
+                val startsWithFtyp = header.size >= 12 &&
+                    header.copyOfRange(4, 8).contentEquals("ftyp".toByteArray())
+                startsWithId3 || startsWithMp3Frame || startsWithRiff || startsWithOgg || startsWithFtyp
+            }
+        }.getOrDefault(false)
     }
 
     fun isSoundAvailableLocally(context: Context, sound: IslamicSoundItem): Boolean {
@@ -74,7 +104,7 @@ object AudioCacheManager {
         }
         // Include downloaded files
         files.forEach { file ->
-            if (file.name.endsWith(".mp3") && file.length() > 1024) {
+            if (file.name.endsWith(".mp3") && isValidCachedMp3(file)) {
                 set.add(file.nameWithoutExtension)
             }
         }
@@ -95,20 +125,10 @@ object AudioCacheManager {
                     return "android.resource://${context.packageName}/raw/$rawName"
                 }
             }
-
-            val localFile = getLocalFileForSound(context, sound.id)
-            if (!localFile.exists() || localFile.length() <= 1024) {
-                synthesizeSpiritualAudioFallback(localFile, sound)
-            }
-            check(localFile.exists() && localFile.length() > 1024) {
-                "Could not generate playable fallback audio for ${sound.title}."
-            }
-            refreshCachedList(context)
-            return Uri.fromFile(localFile).toString()
         }
 
         val localFile = getLocalFileForSound(context, sound.id)
-        if (localFile.exists() && localFile.length() > 1024) return Uri.fromFile(localFile).toString()
+        if (isValidCachedMp3(localFile)) return Uri.fromFile(localFile).toString()
         return sound.remoteAudioUrl
     }
 
@@ -124,36 +144,14 @@ object AudioCacheManager {
         onError: ((String) -> Unit)? = null
     ) {
         if (sound.isBundledRaw) {
-            if (!hasBundledResource(context, sound)) {
-                val localFile = getLocalFileForSound(context, sound.id)
-                if (localFile.exists() && localFile.length() > 1024) {
-                    refreshCachedList(context)
-                    onSuccess?.invoke(Uri.fromFile(localFile).toString())
-                    return
-                }
-                _downloadingSoundId.value = sound.id
-                _downloadProgress.value = 0.1f
-                CoroutineScope(Dispatchers.IO).launch {
-                    ensureFallbackAudio(context, sound) {
-                        _downloadingSoundId.value = null
-                        _downloadProgress.value = 1f
-                        refreshCachedList(context)
-                        if (localFile.exists() && localFile.length() > 1024) {
-                            onSuccess?.invoke(Uri.fromFile(localFile).toString())
-                        } else {
-                            onError?.invoke("Could not create fallback audio for ${sound.title}.")
-                        }
-                    }
-                }
+            if (hasBundledResource(context, sound)) {
+                onSuccess?.invoke(resolvePlayableUri(context, sound))
                 return
             }
-            val uri = resolvePlayableUri(context, sound)
-            onSuccess?.invoke(uri)
-            return
         }
 
         val localFile = getLocalFileForSound(context, sound.id)
-        if (localFile.exists() && localFile.length() > 1024) {
+        if (isValidCachedMp3(localFile)) {
             refreshCachedList(context)
             onSuccess?.invoke(Uri.fromFile(localFile).toString())
             return
@@ -163,85 +161,84 @@ object AudioCacheManager {
         _downloadProgress.value = 0.05f
 
         CoroutineScope(Dispatchers.IO).launch {
-            var downloadSuccess = false
-            var connection: HttpURLConnection? = null
-            var temporaryFile: File? = null
-            try {
-                val parent = localFile.parentFile
-                check(parent != null && (parent.exists() || parent.mkdirs())) {
-                    "Could not create audio cache directory."
-                }
-                val downloadFile = File.createTempFile("${sound.id.take(20)}-", ".tmp", parent)
-                temporaryFile = downloadFile
-                val url = URL(sound.remoteAudioUrl)
-                val activeConnection = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 8000
-                    readTimeout = 12000
-                    instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", "IslamicPrayerTimes/2.0")
-                }
-                connection = activeConnection
-                activeConnection.connect()
+            val mirrors = (listOf(sound.remoteAudioUrl) + sound.fallbackUrls).distinct().filter(String::isNotBlank)
+            var downloaded = false
+            var lastError = "Could not download audio. Please check internet connection."
 
-                if (activeConnection.responseCode in 200..299) {
-                    val fileLength = activeConnection.contentLength
-                    val buffer = ByteArray(4096)
-                    var total: Long = 0
-                    activeConnection.inputStream.use { input ->
-                        FileOutputStream(downloadFile).use { output ->
-                            var count: Int
-                            while (input.read(buffer).also { count = it } != -1) {
-                                total += count
-                                if (fileLength > 0) {
-                                    val progress = (total.toFloat() / fileLength.toFloat()).coerceIn(0.1f, 0.95f)
-                                    _downloadProgress.value = progress
-                                }
-                                output.write(buffer, 0, count)
-                            }
+            val parent = localFile.parentFile
+            if (parent == null || (!parent.exists() && !parent.mkdirs())) {
+                lastError = "Could not create audio cache directory."
+            } else {
+                for ((index, mirror) in mirrors.withIndex()) {
+                    var connection: HttpURLConnection? = null
+                    var tempFile: File? = null
+                    try {
+                        val url = URL(mirror)
+                        val active = (url.openConnection() as HttpURLConnection).apply {
+                            connectTimeout = 8000
+                            readTimeout = 12000
+                            instanceFollowRedirects = true
+                            setRequestProperty("User-Agent", "Mozilla/5.0 (Android; AyaanIslamicStudio)")
+                            setRequestProperty("Accept", "audio/mpeg,audio/*,*/*")
                         }
-                    }
-
-                    if (downloadFile.length() > 1024) {
-                        val fileLock = fallbackFileLocks.computeIfAbsent(localFile.absolutePath) { Any() }
-                        synchronized(fileLock) {
-                            if (!localFile.exists() || localFile.length() <= 1024) {
-                                if (localFile.exists() && !localFile.delete()) {
-                                    error("Could not replace invalid cached audio.")
-                                }
-                                if (!downloadFile.renameTo(localFile)) {
-                                    error("Could not move downloaded audio into the cache.")
+                        connection = active
+                        active.connect()
+                        val contentType = active.contentType?.lowercase().orEmpty()
+                        if (active.responseCode !in 200..299 ||
+                            contentType.startsWith("text/") ||
+                            contentType.startsWith("application/json")
+                        ) {
+                            throw IllegalStateException("Invalid audio response")
+                        }
+                        tempFile = File.createTempFile("${sound.id.take(20)}-", ".tmp", parent)
+                        val buffer = ByteArray(4096)
+                        var total = 0L
+                        active.inputStream.use { input ->
+                            FileOutputStream(tempFile).use { output ->
+                                var count: Int
+                                while (input.read(buffer).also { count = it } != -1) {
+                                    total += count
+                                    val length = active.contentLengthLong
+                                    if (length > 0L) {
+                                        _downloadProgress.value =
+                                            (total.toFloat() / length.toFloat()).coerceIn(0.05f, 0.95f)
+                                    }
+                                    output.write(buffer, 0, count)
                                 }
                             }
-                            downloadSuccess = localFile.exists() && localFile.length() > 1024
                         }
-                        if (downloadSuccess) {
-                            Log.d(TAG, "Successfully downloaded & cached ${sound.title} (${localFile.length()} bytes)")
+                        if (isValidCachedMp3(tempFile)) {
+                            if (localFile.exists()) localFile.delete()
+                            if (tempFile.renameTo(localFile) && isValidCachedMp3(localFile)) {
+                                downloaded = true
+                                Log.i(TAG, "Cached real MP3 for ${sound.title} from mirror ${index + 1}.")
+                                break
+                            }
+                        } else {
+                            throw IllegalStateException("Downloaded file did not contain valid audio magic bytes.")
                         }
+                    } catch (error: Exception) {
+                        lastError = if (error is java.net.UnknownHostException) {
+                            "Connect to internet to stream or download this audio"
+                        } else {
+                            "Could not download this audio. Please try another mirror."
+                        }
+                        Log.w(TAG, "Mirror ${index + 1} failed for ${sound.title}.", error)
+                    } finally {
+                        connection?.disconnect()
+                        tempFile?.delete()
                     }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Remote download failed for ${sound.title} (${e.message}), generating localized spiritual sound fallback")
-            } finally {
-                connection?.disconnect()
-                temporaryFile?.delete()
-            }
-
-            // If network failed or produced empty file, synthesize a serene acoustic audio file
-            if (!downloadSuccess || localFile.length() <= 1024) {
-                synthesizeSpiritualAudioFallback(localFile, sound)
-                downloadSuccess = localFile.exists() && localFile.length() > 1024
             }
 
             withContext(Dispatchers.Main) {
                 _downloadingSoundId.value = null
                 _downloadProgress.value = 1.0f
                 refreshCachedList(context)
-
-                if (downloadSuccess) {
-                    val uri = Uri.fromFile(localFile).toString()
-                    onSuccess?.invoke(uri)
+                if (downloaded) {
+                    onSuccess?.invoke(Uri.fromFile(localFile).toString())
                 } else {
-                    onError?.invoke("Could not download audio. Please check internet connection.")
+                    onError?.invoke(lastError)
                 }
             }
         }

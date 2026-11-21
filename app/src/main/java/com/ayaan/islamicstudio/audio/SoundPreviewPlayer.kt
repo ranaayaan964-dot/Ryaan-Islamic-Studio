@@ -1,30 +1,20 @@
 package com.ayaan.islamicstudio.audio
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.AudioManager
-import android.media.MediaPlayer
 import android.net.Uri
 import android.util.Log
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
-/**
- * MODULE: SOUND PREVIEW PLAYER (VERSION 1.1 HARDENED AUDIO ENGINE)
- * Resolves preview audio race conditions, overlapping playbacks, and MediaPlayer
- * IllegalStateException crashes by thoroughly releasing players and serializing state transitions.
- */
 object SoundPreviewPlayer {
-
     private const val TAG = "SoundPreviewPlayer"
 
     private val _playingSoundId = MutableStateFlow<String?>(null)
@@ -36,10 +26,18 @@ object SoundPreviewPlayer {
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
 
-    @Volatile
-    private var mediaPlayer: MediaPlayer? = null
+    private val _isBuffering = MutableStateFlow(false)
+    val isBuffering = _isBuffering.asStateFlow()
+
+    private val _playbackError = MutableStateFlow<String?>(null)
+    val playbackError = _playbackError.asStateFlow()
+
+    private var exoPlayer: ExoPlayer? = null
     private var prepareJob: Job? = null
     private val playerLock = Any()
+    private var activeMirrorIndex = 0
+    private var activeMirrors = emptyList<String>()
+    private var activeSoundId: String? = null
 
     fun playOrPause(context: Context, sound: IslamicSoundItem) {
         synchronized(playerLock) {
@@ -47,152 +45,136 @@ object SoundPreviewPlayer {
                 stop()
                 return
             }
-
-            stop()
+            stopInternal()
+            activeSoundId = sound.id
+            activeMirrors = (listOf(sound.remoteAudioUrl) + sound.fallbackUrls).distinct().filter(String::isNotBlank)
+            activeMirrorIndex = 0
             _playingSoundId.value = sound.id
             _isLoading.value = true
+            _isBuffering.value = false
+            _playbackError.value = null
         }
 
         prepareJob = CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val uriStr = if (AudioCacheManager.isSoundAvailableLocally(context, sound)) {
-                    AudioCacheManager.resolvePlayableUri(context, sound)
-                } else {
-                    suspendCancellableCoroutine { continuation ->
-                        AudioCacheManager.downloadAndCacheSound(
-                            context,
-                            sound,
-                            onSuccess = { cachedUri ->
-                                if (continuation.isActive) continuation.resume(cachedUri)
-                            },
-                            onError = { message ->
-                                if (continuation.isActive) {
-                                    continuation.resumeWithException(IllegalStateException(message))
-                                }
+            val localFile = AudioCacheManager.getLocalFileForSound(context, sound.id)
+            val uri = if (localFile.exists() && localFile.length() >= 8192L) {
+                Uri.fromFile(localFile)
+            } else {
+                null
+            }
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                synchronized(playerLock) {
+                    if (_playingSoundId.value == sound.id) {
+                        if (uri != null) {
+                            startPlayback(context, uri.toString(), sound.id)
+                        } else if (activeMirrors.isNotEmpty()) {
+                            startPlayback(context, activeMirrors.first(), sound.id)
+                            CoroutineScope(Dispatchers.IO).launch {
+                                AudioCacheManager.downloadAndCacheSound(
+                                    context,
+                                    sound,
+                                    onSuccess = null,
+                                    onError = null
+                                )
                             }
-                        )
-                    }
-                }
-
-                withContext(Dispatchers.Main) {
-                    synchronized(playerLock) {
-                        // Check if the user hasn't cancelled or switched while loading on IO thread
-                        if (_playingSoundId.value == sound.id) {
-                            startPlayback(context, uriStr, sound.id)
+                        } else {
+                            _isLoading.value = false
+                            _playbackError.value = "Connect to internet to stream or download this audio"
+                            stopInternal()
                         }
                     }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "Error initiating preview for ${sound.title}: ${e.message}", e)
-                withContext(Dispatchers.Main) {
-                    if (_playingSoundId.value == sound.id) stop()
                 }
             }
         }
     }
 
-    private fun startPlayback(context: Context, uriString: String, soundId: String) {
-        // Thoroughly release any lingering media player instance
-        releaseMediaPlayerInternal()
-
+    private fun startPlayback(context: Context, uri: String, soundId: String) {
+        releaseInternal()
         try {
-            val player = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .setLegacyStreamType(AudioManager.STREAM_MUSIC)
-                        .build()
+            val httpDataSource = DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
+                .setUserAgent("AyaanIslamicStudio/1.1.1")
+            val player = ExoPlayer.Builder(context)
+                .setMediaSourceFactory(
+                    androidx.media3.exoplayer.source.DefaultMediaSourceFactory(httpDataSource)
                 )
-
-                if (uriString.startsWith("android.resource://")) {
-                    setDataSource(context, Uri.parse(uriString))
-                } else if (uriString.startsWith("file://")) {
-                    setDataSource(context, Uri.parse(uriString))
-                } else if (uriString.startsWith("/")) {
-                    setDataSource(uriString)
-                } else {
-                    setDataSource(uriString)
-                }
-
-                setOnPreparedListener { mp ->
-                    synchronized(playerLock) {
-                        try {
-                            if (_playingSoundId.value == soundId && mediaPlayer === mp) {
-                                _isLoading.value = false
-                                _isPlaying.value = true
-                                mp.start()
-                                Log.d(TAG, "Preview playback started for sound: $soundId")
-                            } else {
-                                // Another sound was triggered during prepare
-                                mp.release()
+                .build()
+                .apply {
+                    setMediaItem(MediaItem.fromUri(uri))
+                    addListener(object : Player.Listener {
+                        override fun onIsPlayingChanged(isPlaying: Boolean) {
+                            if (_playingSoundId.value == soundId) {
+                                _isPlaying.value = isPlaying
                             }
-                        } catch (ise: IllegalStateException) {
-                            Log.w(TAG, "IllegalStateException in onPrepared: ${ise.message}")
-                            stop()
                         }
-                    }
-                }
 
-                setOnCompletionListener {
-                    synchronized(playerLock) {
-                        if (mediaPlayer === it && _playingSoundId.value == soundId) stop()
-                    }
-                }
+                        override fun onPlaybackStateChanged(playbackState: Int) {
+                            if (_playingSoundId.value != soundId) return
+                            when (playbackState) {
+                                Player.STATE_BUFFERING -> {
+                                    _isBuffering.value = true
+                                    _isLoading.value = true
+                                }
+                                Player.STATE_READY -> {
+                                    _isBuffering.value = false
+                                    _isLoading.value = false
+                                    _playbackError.value = null
+                                }
+                                Player.STATE_ENDED -> stopInternal()
+                                Player.STATE_IDLE -> _isBuffering.value = false
+                            }
+                        }
 
-                setOnErrorListener { failedPlayer, what, extra ->
-                    Log.e(TAG, "MediaPlayer error: what=$what, extra=$extra for $soundId")
-                    synchronized(playerLock) {
-                        if (mediaPlayer === failedPlayer && _playingSoundId.value == soundId) stop()
-                    }
-                    true
+                        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                            if (_playingSoundId.value != soundId) return
+                            Log.w(TAG, "Real MP3 preview failed: ${error.errorCodeName}")
+                            val nextIndex = activeMirrorIndex + 1
+                            if (nextIndex < activeMirrors.size) {
+                                activeMirrorIndex = nextIndex
+                                val nextUri = activeMirrors[nextIndex]
+                                releaseInternal()
+                                startPlayback(context, nextUri, soundId)
+                            } else {
+                                _isBuffering.value = false
+                                _isLoading.value = false
+                                _playbackError.value =
+                                    "Connect to internet to stream or download this audio"
+                                stopInternal()
+                            }
+                        }
+                    })
+                    prepare()
+                    playWhenReady = true
                 }
-            }
-            mediaPlayer = player
-            player.prepareAsync()
-        } catch (ise: IllegalStateException) {
-            Log.e(TAG, "IllegalStateException during startPlayback for $soundId", ise)
-            stop()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start playback for $soundId: ${e.message}", e)
-            stop()
+            exoPlayer = player
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not start real MP3 preview.", error)
+            _isBuffering.value = false
+            _isLoading.value = false
+            _playbackError.value = "Connect to internet to stream or download this audio"
+            stopInternal()
         }
     }
 
-    private fun releaseMediaPlayerInternal() {
+    private fun releaseInternal() {
         try {
-            mediaPlayer?.let { mp ->
-                try {
-                    if (mp.isPlaying) {
-                        mp.stop()
-                    }
-                } catch (_: IllegalStateException) {
-                    // Ignored: Player may already be stopped or in uninitialized state
-                }
-                try {
-                    mp.reset()
-                } catch (_: IllegalStateException) {
-                    // Ignored
-                }
-                mp.release()
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Exception during mediaPlayer release", e)
-        } finally {
-            mediaPlayer = null
-        }
+            exoPlayer?.release()
+        } catch (_: Exception) {}
+        exoPlayer = null
+    }
+
+    private fun stopInternal() {
+        prepareJob?.cancel()
+        prepareJob = null
+        releaseInternal()
+        _isPlaying.value = false
+        _isLoading.value = false
+        _isBuffering.value = false
+        _playingSoundId.value = null
+        activeSoundId = null
     }
 
     fun stop() {
-        synchronized(playerLock) {
-            prepareJob?.cancel()
-            prepareJob = null
-            releaseMediaPlayerInternal()
-            _isPlaying.value = false
-            _isLoading.value = false
-            _playingSoundId.value = null
-        }
+        synchronized(playerLock) { stopInternal() }
     }
 }

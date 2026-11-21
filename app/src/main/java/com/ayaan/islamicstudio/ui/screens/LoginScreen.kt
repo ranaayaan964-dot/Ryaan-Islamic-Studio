@@ -89,6 +89,7 @@ import com.ayaan.islamicstudio.security.AyaanAuthRepository
 import com.ayaan.islamicstudio.security.SessionManager
 import com.ayaan.islamicstudio.ui.components.IslamicWatermarkBackground
 import com.ayaan.islamicstudio.ui.components.NeumorphicCard
+import com.ayaan.islamicstudio.ui.components.LuxuryAmbientBackdrop
 import com.ayaan.islamicstudio.ui.theme.CharcoalPrimary
 import com.ayaan.islamicstudio.ui.theme.CrimsonError
 import com.ayaan.islamicstudio.ui.theme.DeepRoyalEmerald
@@ -230,7 +231,7 @@ fun LoginScreen(
         }
     }
 
-    IslamicWatermarkBackground(
+    LuxuryAmbientBackdrop(
         modifier = Modifier
             .fillMaxSize()
             .testTag("login_screen")
@@ -339,7 +340,33 @@ fun LoginScreen(
                 letterSpacing = 2.5.sp
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(9.dp))
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                PlatinumGold.copy(alpha = 0.2f),
+                                Color(0xFFF9E7A8).copy(alpha = 0.74f),
+                                PlatinumGold.copy(alpha = 0.2f)
+                            )
+                        )
+                    )
+                    .border(1.dp, PlatinumGold, RoundedCornerShape(999.dp))
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = "TODAY PRAYER TIME",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = DeepRoyalEmerald,
+                    letterSpacing = 1.8.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Security Badge
             Row(
@@ -358,7 +385,7 @@ fun LoginScreen(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "RESTRICTED ACCESS • ADMIN CONSOLE ONLY",
+                    text = "RESTRICTED ACCESS â€¢ ADMIN CONSOLE ONLY",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = DeepRoyalEmerald,

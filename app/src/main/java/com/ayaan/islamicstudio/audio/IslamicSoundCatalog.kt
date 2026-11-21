@@ -411,7 +411,91 @@ object IslamicSoundCatalog {
             description = "Pure, sustained crystal harmonic tones creating an atmosphere of reverence and peace.",
             accentColorHex = 0xFFEC4899
         )
-    )
+    ).map { sound ->
+        when (sound.id) {
+            "ayat_al_kursi" -> sound.copy(
+                fallbackUrls = listOf(
+                    "https://everyayah.com/data/Abdul_Basit_Murattal_192kbps/002255.mp3",
+                    "https://cdn.islamic.network/quran/audio/128/ar.alafasy/262.mp3"
+                )
+            )
+            "surah_al_fatihah" -> sound.copy(
+                remoteAudioUrl = "https://everyayah.com/data/Alafasy_128kbps/001001.mp3",
+                fallbackUrls = listOf(
+                    "https://server8.mp3quran.net/afs/001.mp3",
+                    "https://everyayah.com/data/Abdurrahmaan_As-Sudais_192kbps/001001.mp3"
+                )
+            )
+            "amanar_rasool" -> sound.copy(
+                fallbackUrls = listOf("https://everyayah.com/data/MaherAlMuaiqly128kbps/002285.mp3")
+            )
+            "surah_al_ikhlas" -> sound.copy(
+                remoteAudioUrl = "https://server8.mp3quran.net/afs/112.mp3",
+                fallbackUrls = listOf("https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/112.mp3")
+            )
+            "surah_al_falaq" -> sound.copy(
+                remoteAudioUrl = "https://server8.mp3quran.net/afs/113.mp3",
+                fallbackUrls = listOf("https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/113.mp3")
+            )
+            "surah_an_nas" -> sound.copy(
+                remoteAudioUrl = "https://server8.mp3quran.net/afs/114.mp3",
+                fallbackUrls = listOf("https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/114.mp3")
+            )
+            "surah_al_mulk" -> sound.copy(
+                remoteAudioUrl = "https://server8.mp3quran.net/afs/067.mp3",
+                fallbackUrls = listOf("https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/067.mp3")
+            )
+            "surah_ar_rahman" -> sound.copy(
+                remoteAudioUrl = "https://server8.mp3quran.net/afs/055.mp3",
+                fallbackUrls = listOf("https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/055.mp3")
+            )
+            "fajr_special" -> sound.copy(
+                remoteAudioUrl = "https://cdn.aladhan.com/audio/adhans/a3.mp3",
+                fallbackUrls = listOf("https://www.islamcan.com/audio/adhan/azan6.mp3")
+            )
+            "standard_adhan", "adhan_makkah" -> sound.copy(
+                remoteAudioUrl = "https://cdn.aladhan.com/audio/adhans/a1.mp3",
+                fallbackUrls = listOf(
+                    "https://www.islamcan.com/audio/adhan/azan1.mp3",
+                    "https://media.blubrry.com/muslim_central_quran/podcasts.qurancentral.com/adhan/makkah-adhan.mp3"
+                )
+            )
+            "adhan_madinah" -> sound.copy(
+                remoteAudioUrl = "https://cdn.aladhan.com/audio/adhans/a2.mp3",
+                fallbackUrls = listOf("https://www.islamcan.com/audio/adhan/azan2.mp3")
+            )
+            "adhan_mishary" -> sound.copy(
+                remoteAudioUrl = "https://cdn.aladhan.com/audio/adhans/a4.mp3",
+                fallbackUrls = listOf("https://www.islamcan.com/audio/adhan/azan15.mp3")
+            )
+            "adhan_alaqsa" -> sound.copy(
+                remoteAudioUrl = "https://cdn.aladhan.com/audio/adhans/a7.mp3",
+                fallbackUrls = listOf("https://www.islamcan.com/audio/adhan/azan3.mp3")
+            )
+            "adhan_abdulbasit" -> sound.copy(
+                remoteAudioUrl = "https://cdn.aladhan.com/audio/adhans/a9.mp3",
+                fallbackUrls = listOf("https://www.islamcan.com/audio/adhan/azan10.mp3")
+            )
+            "ayat_al_kursi" -> sound.copy(
+                fallbackUrls = listOf(
+                    "https://everyayah.com/data/Abdul_Basit_Murattal_192kbps/002255.mp3",
+                    "https://cdn.islamic.network/quran/audio/128/ar.alafasy/262.mp3"
+                )
+            )
+            else -> sound.copy(
+                remoteAudioUrl = "https://everyayah.com/data/Alafasy_128kbps/${when (sound.category) {
+                    SoundCategory.SHORT_REMINDERS -> "002255"
+                    SoundCategory.PREMIUM_NAATS -> "001001"
+                    SoundCategory.TAHAJJUD_ZEN -> "112001"
+                    else -> "001001"
+                }}.mp3",
+                fallbackUrls = listOf(
+                    "https://server8.mp3quran.net/afs/112.mp3",
+                    "https://server8.mp3quran.net/afs/001.mp3"
+                )
+            )
+        }
+    }
 
     fun getSoundById(id: String, fallbackSoundId: String = SoundEvent.REGULAR.defaultSoundId): IslamicSoundItem {
         return allSounds.find { it.id == id }

@@ -50,6 +50,7 @@ data class IslamicSoundItem(
     val isBundledRaw: Boolean,
     val rawResName: String? = null,
     val remoteAudioUrl: String,
+    val fallbackUrls: List<String> = emptyList(),
     val description: String,
     val accentColorHex: Long = 0xFFE5C07B
 )

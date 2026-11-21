@@ -14,6 +14,7 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthMultiFactorException
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.MultiFactorResolver
 import com.google.firebase.auth.OAuthProvider
@@ -116,7 +117,7 @@ class AyaanAuthRepository(context: Context) {
                     SetOptions.merge()
                 ).await()
                 val claims = runCatching { firebaseUser.getIdToken(true).await().claims }.getOrDefault(emptyMap())
-                val isAdmin = isAuthorizedAdmin(claims)
+                val isAdmin = isAuthorizedAdmin(firebaseUser, claims)
                 val user = persistUser(
                     uid = firebaseUser.uid,
                     username = document.getString("username")
@@ -258,7 +259,7 @@ class AyaanAuthRepository(context: Context) {
                 }
 
                 val claims = runCatching { firebaseUser.getIdToken(true).await().claims }.getOrDefault(emptyMap())
-                val isAdmin = isAuthorizedAdmin(claims)
+                val isAdmin = isAuthorizedAdmin(firebaseUser, claims)
 
                 runCatching {
                     firestore.collection("users").document(firebaseUser.uid).set(
@@ -419,8 +420,9 @@ class AyaanAuthRepository(context: Context) {
         val username = document?.getString("username") ?: "${usernameBase}_${uid.takeLast(6).lowercase()}"
         val createdAt = document?.getLong("createdAt") ?: System.currentTimeMillis()
         val now = System.currentTimeMillis()
-        val claims = runCatching { auth.currentUser?.getIdToken(true)?.await()?.claims.orEmpty() }.getOrDefault(emptyMap())
-        val isAdmin = isAuthorizedAdmin(claims)
+        val firebaseUser = auth.currentUser?.takeIf { it.uid == uid }
+        val claims = runCatching { firebaseUser?.getIdToken(true)?.await()?.claims.orEmpty() }.getOrDefault(emptyMap())
+        val isAdmin = firebaseUser != null && isAuthorizedAdmin(firebaseUser, claims)
         val profile = mutableMapOf<String, Any>(
             "uid" to uid,
             "fullName" to fullName,
@@ -470,7 +472,14 @@ class AyaanAuthRepository(context: Context) {
         pendingMfaPasswordHash = ""
     }
 
-    private fun isAuthorizedAdmin(claims: Map<String, Any>, email: String? = auth.currentUser?.email): Boolean = claims["admin"] == true || email?.trim()?.lowercase() in AdminRepository.AUTHORIZED_ADMIN_EMAILS
+    private fun isAuthorizedAdmin(firebaseUser: FirebaseUser, claims: Map<String, Any>): Boolean {
+        if (auth.currentUser?.uid != firebaseUser.uid) return false
+        return AdminAccessPolicy.isAuthorized(
+            firebaseUser.email,
+            firebaseUser.isEmailVerified,
+            hasAdminClaim = claims["admin"] == true
+        )
+    }
 
     private suspend fun persistUser(
         uid: String,

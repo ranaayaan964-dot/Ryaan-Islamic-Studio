@@ -993,18 +993,7 @@ fun QuranTafsirScreen(
             QariSelectionDialog(
                 currentQariId = activeQari,
                 onSelectQari = { qari ->
-                    preferences.setQari(qari.id)
-                    if (isPlaying) {
-                        selectedSurah?.let { s ->
-                            QuranAudioController.playSurahWithQari(
-                                context = context,
-                                surahId = s.id,
-                                surahName = s.nameEnglish,
-                                qariId = qari.id,
-                                startPositionMs = currentPositionMs
-                            )
-                        }
-                    }
+                    QuranAudioController.selectQari(context, qari)
                 },
                 onDismiss = { showQariDialog = false }
             )

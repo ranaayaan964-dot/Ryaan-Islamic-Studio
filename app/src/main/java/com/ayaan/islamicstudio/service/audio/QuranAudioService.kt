@@ -24,6 +24,7 @@ import com.ayaan.islamicstudio.R
 import com.ayaan.islamicstudio.data.quran.api.QuranJsonApi
 import com.ayaan.islamicstudio.data.quran.model.AyahEntity
 import com.ayaan.islamicstudio.data.quran.repository.HifzRepeatMode
+import com.ayaan.islamicstudio.data.quran.repository.QuranReadingPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -101,6 +102,9 @@ class QuranAudioService : Service() {
     private var stopOnSurahEnd = false
     private var remainingLoopCount = 0
     private var activeAyahTotal = 0
+    private var activeJuzNumber = 0
+    private var activeJuzQueue: List<AyahEntity> = emptyList()
+    private var activeJuzQueueIndex = -1
 
     inner class QuranAudioBinder : Binder() {
         fun getService(): QuranAudioService = this@QuranAudioService
@@ -318,7 +322,79 @@ class QuranAudioService : Service() {
         playAyahTrack(surah, ayahNumber.coerceIn(1, total.coerceAtLeast(1)), surahName, qariId)
     }
 
+    fun playJuzQueue(
+        juzNumber: Int,
+        ayahs: List<AyahEntity>,
+        startIndex: Int = 0,
+        qariId: QariId? = null
+    ) {
+        if (ayahs.isEmpty()) return
+        activeJuzNumber = juzNumber
+        activeJuzQueue = ayahs
+        activeJuzQueueIndex = startIndex.coerceIn(0, ayahs.lastIndex)
+        stopOnSurahEnd = true
+        val target = activeJuzQueue[activeJuzQueueIndex]
+        val selectedQari = qariId ?: _activeQariFlow.value
+        _activeQariFlow.value = selectedQari
+        QuranReadingPreferences(applicationContext).setQari(selectedQari)
+        val surahName = QuranJsonApi.ALL_114_SURAHS
+            .firstOrNull { it.number == target.surahId }?.englishName
+            ?: "Surah ${target.surahId}"
+        _activeSurahIdFlow.value = target.surahId
+        _activeSurahNameFlow.value = surahName
+        _activeAyahNumberFlow.value = target.verseNumber
+        activeAyahTotal = QuranJsonApi.ALL_114_SURAHS
+            .firstOrNull { it.number == target.surahId }?.numberOfAyahs ?: 0
+        playAyahTrack(target.surahId, target.verseNumber, surahName, selectedQari)
+    }
+
+    fun selectQari(qari: QariProfile) {
+        changeReciter(qari.id)
+    }
+
+    fun changeReciter(qariId: String) {
+        val qari = runCatching { QariId.valueOf(qariId.trim().uppercase()) }
+            .getOrElse { _activeQariFlow.value }
+        val wasPlaying = exoPlayer?.isPlaying == true
+        val surahId = _activeSurahIdFlow.value
+        val ayahNumber = _activeAyahNumberFlow.value
+        val surahName = _activeSurahNameFlow.value
+        _activeQariFlow.value = qari
+        QuranReadingPreferences(applicationContext).setQari(qari)
+
+        if (activeJuzQueue.isNotEmpty() && activeJuzQueueIndex in activeJuzQueue.indices) {
+            val target = activeJuzQueue[activeJuzQueueIndex]
+            playAyahTrack(target.surahId, target.verseNumber, surahName, qari)
+            if (!wasPlaying) exoPlayer?.pause()
+            return
+        }
+        if (ayahNumber > 0) {
+            playAyahTrack(surahId, ayahNumber, surahName, qari)
+            if (!wasPlaying) exoPlayer?.pause()
+        } else {
+            val audioUrl = QariCatalog.getSurahAudioUrl(qari, surahId)
+            playSurah(surahId, surahName, audioUrl)
+            if (!wasPlaying) exoPlayer?.pause()
+        }
+    }
+
     private fun advanceAyahPlayback() {
+        if (activeJuzQueue.isNotEmpty() && activeJuzQueueIndex in activeJuzQueue.indices) {
+            val nextIndex = activeJuzQueueIndex + 1
+            if (nextIndex < activeJuzQueue.size) {
+                activeJuzQueueIndex = nextIndex
+                val next = activeJuzQueue[nextIndex]
+                val nextSurahName = QuranJsonApi.ALL_114_SURAHS
+                    .firstOrNull { it.number == next.surahId }?.englishName
+                    ?: "Surah ${next.surahId}"
+                playAyahTrack(next.surahId, next.verseNumber, nextSurahName, _activeQariFlow.value)
+                return
+            }
+            stopAudio()
+            activeJuzQueue = emptyList()
+            activeJuzQueueIndex = -1
+            return
+        }
         val surahId = _activeSurahIdFlow.value
         val ayahNumber = _activeAyahNumberFlow.value
         if (_repeatModeFlow.value != HifzRepeatMode.OFF && remainingLoopCount > 0) {
@@ -357,12 +433,26 @@ class QuranAudioService : Service() {
             .build()
         exoPlayer?.let { player ->
             player.stop()
-            player.setMediaItem(
+            val primary = QariCatalog.getAyahAudioUrl(qariId, surahId, ayahNumber)
+            val globalAyahNumber = activeJuzQueue
+                .getOrNull(activeJuzQueueIndex)
+                ?.globalVerseNumber
+                ?: run {
+                    var totalBeforeSurah = 0
+                    for (info in QuranJsonApi.ALL_114_SURAHS) {
+                        if (info.number >= surahId) break
+                        totalBeforeSurah += info.numberOfAyahs
+                    }
+                    totalBeforeSurah + ayahNumber
+                }
+            val fallback = QariCatalog.getAyahAudioUrlFallback(qariId, globalAyahNumber)
+            val mediaItems = listOf(primary, fallback).map { url ->
                 MediaItem.Builder()
-                    .setUri(Uri.parse(QariCatalog.getAyahAudioUrl(qariId, surahId, ayahNumber)))
+                    .setUri(Uri.parse(url))
                     .setMediaMetadata(metadata)
                     .build()
-            )
+            }
+            player.setMediaItems(mediaItems)
             player.prepare()
             player.setPlaybackSpeed(_playbackSpeedFlow.value)
             player.play()

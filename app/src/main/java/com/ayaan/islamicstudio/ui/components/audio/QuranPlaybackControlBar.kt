@@ -72,6 +72,7 @@ import com.ayaan.islamicstudio.service.audio.QariCatalog
 import com.ayaan.islamicstudio.service.audio.QariId
 import com.ayaan.islamicstudio.service.audio.QuranAudioController
 import com.ayaan.islamicstudio.ui.components.quran.QariSelectionDialog
+import com.ayaan.islamicstudio.ui.components.AnimatedAudioEqualizerBars
 import com.ayaan.islamicstudio.ui.screens.SleepTimerDialog
 import com.ayaan.islamicstudio.ui.theme.CharcoalPrimary
 import com.ayaan.islamicstudio.ui.theme.DeepRoyalEmerald
@@ -490,6 +491,11 @@ fun QuranPlaybackControlBar(
                             }
                         }
 
+                        AnimatedAudioEqualizerBars(
+                            isActive = isPlaying,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+
                         // 3. Reciter Selector Button
                         Box(
                             modifier = Modifier
@@ -560,12 +566,7 @@ fun QuranPlaybackControlBar(
             currentQariId = activeQari,
             onSelectQari = { selectedProfile ->
                 showQariDialog = false
-                QuranAudioController.playSurahWithQari(
-                    context = context,
-                    surahId = activeSurahId,
-                    surahName = activeSurahName,
-                    qariId = selectedProfile.id
-                )
+                QuranAudioController.selectQari(context, selectedProfile)
             },
             onDismiss = { showQariDialog = false }
         )

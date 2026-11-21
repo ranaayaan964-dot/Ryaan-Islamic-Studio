@@ -5,61 +5,38 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ayaan.islamicstudio.BuildConfig
 import com.ayaan.islamicstudio.data.database.ProPlanTier
 import com.ayaan.islamicstudio.data.repository.ProSubscriptionRepository
 import com.ayaan.islamicstudio.ui.components.ads.UnityRewardedManager
-import kotlinx.coroutines.launch
+import com.google.firebase.auth.FirebaseAuth
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 private fun Context.unwrapActivity(): Activity? {
     var current: Context = this
@@ -78,357 +55,276 @@ fun ProSubscriptionScreen(
     onProActivated: () -> Unit = onNavigateBack
 ) {
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
     val repository = remember(context) { ProSubscriptionRepository.getInstance(context) }
     val status by repository.proStatusFlow.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    var selectedPlan by remember { mutableStateOf(ProPlanTier.MONTHLY) }
-    var keyInput by remember { mutableStateOf("") }
-    var isActivating by remember { mutableStateOf(false) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    var isError by remember { mutableStateOf(false) }
-    var activatedExpiry by remember { mutableStateOf(0L) }
+    val webViewState = remember { androidx.compose.runtime.mutableStateOf<WebView?>(null) }
 
-    Column(
+    BackHandler {
+        if (isPostLoginStep) onContinueWithFree() else onNavigateBack()
+    }
+
+    LaunchedEffect(repository) {
+        UnityRewardedManager.preloadRewarded(context, "BP_Rewarded_Android")
+        try {
+            repository.refreshCurrentProStatus()
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Toast.makeText(
+                context,
+                error.localizedMessage ?: "Pro status could not be refreshed.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewState.value?.apply {
+                removeJavascriptInterface("AyaanProBridge")
+                stopLoading()
+                loadUrl("about:blank")
+                destroy()
+            }
+            webViewState.value = null
+        }
+    }
+
+    AndroidView(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (!isPostLoginStep) {
-                TextButton(onClick = onNavigateBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    Text(" Back")
+            .navigationBarsPadding(),
+        factory = { viewContext ->
+            WebView(viewContext).apply {
+                setBackgroundColor(android.graphics.Color.parseColor("#041B15"))
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView,
+                        request: WebResourceRequest
+                    ): Boolean = request.url.host != "ayaan.local"
                 }
-            }
-            Text(
-                "AYAAN ISLAMIC STUDIO",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text(
-                        "  A MORE FOCUSED EXPERIENCE",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Text(
-                    "Your practice,\nwithout limits.",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                addJavascriptInterface(
+                    AyaanProBridge(
+                        context = viewContext,
+                        repository = repository,
+                        scope = scope,
+                        webView = this,
+                        isPostLoginStep = isPostLoginStep,
+                        onNavigateBack = onNavigateBack,
+                        onContinueWithFree = onContinueWithFree,
+                        onProActivated = onProActivated
+                    ),
+                    "AyaanProBridge"
                 )
-                Text(
-                    "Choose the plan that fits your journey. Keep the essentials free, or unlock the complete Ayaan experience with Pro.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        if (status.isProActive && status.proExpiresAt > 0) {
-                            "PRO ACTIVE · ${status.remainingDays} days remaining"
-                        } else {
-                            "FREE PLAN · Upgrade whenever you’re ready"
-                        },
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
+                val html = viewContext.assets.open("web/pro_portal.html")
+                    .bufferedReader(Charsets.UTF_8)
+                    .use { it.readText() }
+                webViewState.value = this
+                loadDataWithBaseURL("https://ayaan.local/", html, "text/html", "UTF-8", null)
             }
-        }
-
-        if (isPostLoginStep) {
-            OutlinedButton(onClick = onContinueWithFree, modifier = Modifier.fillMaxWidth()) {
-                Text("Continue with Free plan")
-            }
-        }
-
-        Text("Choose your experience", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PlanFeatureCard(
-                modifier = Modifier.weight(1f),
-                title = "Free",
-                subtitle = "The essentials",
-                features = listOf(
-                    "Prayer times & alarms",
-                    "Quran reading",
-                    "Limited daily AI & Hifz",
-                    "Ad-supported access"
-                ),
-                highlighted = false
-            )
-            PlanFeatureCard(
-                modifier = Modifier.weight(1f),
-                title = "Ayaan Pro",
-                subtitle = "Everything, unlocked",
-                features = listOf(
-                    "Unlimited AI Scholar & Hifz",
-                    "Ad-free experience",
-                    "Offline Quran downloads",
-                    "Zakat PDF certificates"
-                ),
-                highlighted = true
-            )
-        }
-
-        if (!status.isProActive) {
-            OutlinedButton(
-                onClick = {
-                    val activity = context.unwrapActivity()
-                    if (activity == null) {
-                        Toast.makeText(context, "Please try again.", Toast.LENGTH_SHORT).show()
-                    } else {
-                        UnityRewardedManager.showRewardedAd(
-                            activity = activity,
-                            onRewardEarned = {
-                                repository.grantRewardedAdBonus("ai_scholar", 2)
-                                Toast.makeText(context, "Alhamdulillah! +2 Bonus Uses Unlocked!", Toast.LENGTH_SHORT).show()
-                            },
-                            onAdDismissedOrFailed = { message ->
-                                if (!message.isNullOrBlank()) {
-                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        )
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.primary
-                )
-            ) {
-                Text("?? Watch Video Ad to Support App")
-            }
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Select your Pro plan", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("· Secure key activation", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        ProPlanTier.values().forEach { tier ->
-            val isSelected = tier == selectedPlan
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { selectedPlan = tier },
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(
-                    if (isSelected) 2.dp else 1.dp,
-                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
-                ),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                )
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(18.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text(tier.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(tier.badgeLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(tier.priceFormatted, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        if (isSelected) {
-                            Text("SELECTED", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Get your official Pro key", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    "Contact our team to purchase the ${selectedPlan.displayName} (${selectedPlan.priceFormatted}). Your key will be linked to your account when activated.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text("Purchases: ${BuildConfig.PRO_SUPPORT_EMAIL}", style = MaterialTheme.typography.bodyMedium)
-                Text("Email support / backup: ${BuildConfig.GMAIL_SENDER_EMAIL}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = {
-                        clipboard.setText(AnnotatedString(BuildConfig.PRO_SUPPORT_EMAIL))
-                        Toast.makeText(context, "Email copied", Toast.LENGTH_SHORT).show()
-                    }) { Text("Copy Email") }
-                    Button(onClick = {
-                        val mailIntent = Intent(
-                            Intent.ACTION_SENDTO,
-                            Uri.parse("mailto:${BuildConfig.PRO_SUPPORT_EMAIL}")
-                        ).putExtra(Intent.EXTRA_SUBJECT, "Buy Ayaan Islamic Studio Pro Key")
-                            .putExtra(
-                                Intent.EXTRA_TEXT,
-                                "Assalamu Alaikum,\n\nI would like to purchase the ${selectedPlan.displayName} (${selectedPlan.priceFormatted})."
-                            )
-                        runCatching { context.startActivity(mailIntent) }
-                            .onFailure {
-                                Toast.makeText(context, "No email app is available on this device.", Toast.LENGTH_LONG).show()
-                            }
-                    }) { Text("Email to buy") }
-                }
-                Text("WhatsApp contact coming soon", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-
-        Text("Already have a Pro key?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        OutlinedTextField(
-            value = keyInput,
-            onValueChange = { keyInput = it.uppercase(Locale.ROOT) },
-            modifier = Modifier.fillMaxWidth().testTag("pro_key_input"),
-            label = { Text("Enter your Pro activation key") },
-            placeholder = { Text("AYAAN-MNTH-XXXX-XXXX-XXXX") },
-            supportingText = { Text("Each Pro Key is single-use only and locks to your account.") },
-            singleLine = true,
-            enabled = !isActivating
-        )
-        Button(
-            onClick = {
-                isActivating = true
-                notice = null
-                scope.launch {
-                    repository.redeemProKey(keyInput).fold(
-                        onSuccess = { activated ->
-                            keyInput = ""
-                            notice = "${activated.aiNote}\nAccess is active for ${activated.durationDays} days."
-                            isError = false
-                            activatedExpiry = activated.expiresAt
-                            repository.refreshCurrentProStatus()
-                        },
-                        onFailure = {
-                            notice = it.localizedMessage ?: "The Pro key could not be activated."
-                            isError = true
-                        }
-                    )
-                    isActivating = false
-                }
-            },
-            modifier = Modifier.fillMaxWidth().testTag("activate_pro_key_button"),
-            enabled = keyInput.isNotBlank() && !isActivating
-        ) {
-            if (isActivating) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                Text("  Activating…")
-            } else {
-                Icon(Icons.Default.CheckCircle, contentDescription = null)
-                Text("  Activate Pro")
-            }
-        }
-
-        notice?.let {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Text(
-                    text = it,
-                    modifier = Modifier.padding(16.dp),
-                    color = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
+        },
+        update = { webView ->
+            webViewState.value = webView
+            val active = status.isProActive
+            webView.post {
+                webView.evaluateJavascript(
+                    "window.renderProPortalState(${buildProStateJson(context, repository, isPostLoginStep, active)})",
+                    null
                 )
             }
         }
-        OutlinedButton(onClick = onContinueWithFree, modifier = Modifier.fillMaxWidth()) {
-            Text("Continue with Free plan")
+    )
+}
+
+class AyaanProBridge(
+    private val context: Context,
+    private val repository: ProSubscriptionRepository,
+    private val scope: CoroutineScope,
+    private val webView: WebView,
+    private val isPostLoginStep: Boolean,
+    private val onNavigateBack: () -> Unit,
+    private val onContinueWithFree: () -> Unit,
+    private val onProActivated: () -> Unit
+) {
+    @JavascriptInterface
+    fun goBack() {
+        webView.post {
+            if (isPostLoginStep) onContinueWithFree() else onNavigateBack()
         }
-        Spacer(Modifier.height(8.dp))
     }
 
-    if (!isError && activatedExpiry > 0L) {
-        AlertDialog(
-            onDismissRequest = {
-                activatedExpiry = 0L
-                onProActivated()
-            },
-            title = { Text("Pro Activated!") },
-            text = {
-                Text(
-                    "${notice.orEmpty()}\n\nValid until ${
-                        DateFormat.getDateInstance(DateFormat.LONG).format(Date(activatedExpiry))
-                    }."
+    @JavascriptInterface
+    fun continueWithFree() {
+        webView.post(onContinueWithFree)
+    }
+
+    @JavascriptInterface
+    fun redeemProKey(rawKey: String) {
+        val key = rawKey.trim().uppercase(Locale.ROOT)
+        if (key.isBlank()) {
+            dispatchRedeemResult(false, "Enter a Pro key to activate your membership.", false)
+            return
+        }
+        scope.launch {
+            val result = try {
+                withContext(Dispatchers.IO) { repository.redeemProKey(key) }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                dispatchRedeemResult(
+                    success = false,
+                    message = error.localizedMessage ?: "The Pro key could not be activated.",
+                    activated = false
                 )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    activatedExpiry = 0L
-                    onProActivated()
-                }) { Text("Continue") }
+                return@launch
             }
-        )
+            if (result.isSuccess) {
+                try {
+                    withContext(Dispatchers.IO) { repository.refreshCurrentProStatus() }
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    dispatchRedeemResult(
+                        success = true,
+                        message = "Key activated, but account status could not be refreshed: " +
+                            (error.localizedMessage ?: "please reopen the subscription screen."),
+                        activated = true
+                    )
+                    return@launch
+                }
+            }
+            dispatchRedeemResult(
+                success = result.isSuccess,
+                message = result.fold(
+                    onSuccess = { "${it.aiNote}\nAccess is active for ${it.durationDays} days.".trim() },
+                    onFailure = { it.localizedMessage ?: "The Pro key could not be activated." }
+                ),
+                activated = result.isSuccess
+            )
+        }
+    }
+
+    @JavascriptInterface
+    fun watchRewardedAd() {
+        webView.post {
+            val activity = context.unwrapActivity()
+            if (activity == null) {
+                dispatchError("Rewarded video is unavailable on this screen.")
+                return@post
+            }
+            UnityRewardedManager.showRewardedAd(
+                activity = activity,
+                placementId = "BP_Rewarded_Android",
+                onRewardEarned = {
+                    repository.grantRewardedAdBonus("ai_scholar", 2)
+                    Toast.makeText(context, "Alhamdulillah! +2 Bonus Uses Unlocked!", Toast.LENGTH_SHORT).show()
+                    refreshPortalState()
+                },
+                onAdDismissedOrFailed = { message ->
+                    if (!message.isNullOrBlank()) dispatchError(message)
+                }
+            )
+        }
+    }
+
+    @JavascriptInterface
+    fun emailToBuy(tierId: String) {
+        val tier = ProPlanTier.values().firstOrNull { it.tierId == tierId }
+        if (tier == null) {
+            dispatchError("Choose a valid Pro plan before contacting support.")
+            return
+        }
+        webView.post {
+            val intent = Intent(
+                Intent.ACTION_SENDTO,
+                Uri.parse("mailto:${BuildConfig.PRO_SUPPORT_EMAIL}")
+            ).putExtra(Intent.EXTRA_SUBJECT, "Buy Ayaan Islamic Studio ${tier.displayName}")
+                .putExtra(
+                    Intent.EXTRA_TEXT,
+                    "Assalamu Alaikum,\n\nI would like to purchase the ${tier.displayName} (${tier.priceFormatted}, ${tier.durationDays} days)."
+                )
+            try {
+                context.startActivity(intent)
+            } catch (_: android.content.ActivityNotFoundException) {
+                dispatchError("No email app is available on this device.")
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun copyText(value: String) {
+        webView.post {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Ayaan Islamic Studio", value))
+            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @JavascriptInterface
+    fun requestStateRefresh() {
+        refreshPortalState()
+    }
+
+    private fun refreshPortalState() {
+        val json = buildProStateJson(context, repository, isPostLoginStep)
+        webView.post {
+            webView.evaluateJavascript("window.renderProPortalState($json)", null)
+        }
+    }
+
+    private fun dispatchRedeemResult(success: Boolean, message: String, activated: Boolean) {
+        val messageJson = JSONObject.quote(message)
+        val stateJson = buildProStateJson(context, repository, isPostLoginStep)
+        webView.post {
+            webView.evaluateJavascript(
+                "window.onProKeyRedeemResult($success,$messageJson,$stateJson)",
+                null
+            )
+            if (activated) onProActivated()
+        }
+    }
+
+    private fun dispatchError(message: String) {
+        webView.post {
+            webView.evaluateJavascript("window.onProBridgeError(${JSONObject.quote(message)})", null)
+        }
     }
 }
 
-@Composable
-private fun PlanFeatureCard(
-    modifier: Modifier,
-    title: String,
-    subtitle: String,
-    features: List<String>,
-    highlighted: Boolean
-) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (highlighted) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface
-        ),
-        border = BorderStroke(
-            1.dp,
-            if (highlighted) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-        )
-    ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            features.forEach { feature ->
-                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(
-                        Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp).padding(top = 1.dp),
-                        tint = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(feature, style = MaterialTheme.typography.labelMedium)
-                }
-            }
-        }
-    }
+private fun buildProStateJson(
+    context: Context,
+    repository: ProSubscriptionRepository,
+    isPostLoginStep: Boolean,
+    forceProActive: Boolean = repository.proStatusFlow.value.isProActive
+): String {
+    val status = repository.proStatusFlow.value
+    val firebaseUser = FirebaseAuth.getInstance().currentUser
+    val aiScholarUsed = if (forceProActive) 0 else 5 - repository.remainingUses("ai_scholar", 5)
+    val hifzUsed = if (forceProActive) 0 else 3 - repository.remainingUses("ai_hifz", 3)
+    val scanUsed = if (forceProActive) 0 else 2 - repository.remainingUses("scan_dream", 2)
+    val expiry = status.proExpiresAt.takeIf { it > 0L }?.let {
+        DateFormat.getDateInstance(DateFormat.LONG).format(Date(it))
+    }.orEmpty()
+    return JSONObject()
+        .put("isProActive", forceProActive)
+        .put("activePlanName", status.activePlanName)
+        .put("remainingDays", status.remainingDays)
+        .put("expiresAtFormatted", expiry)
+        .put("activatedKey", status.activatedKey)
+        .put("supportEmail", BuildConfig.PRO_SUPPORT_EMAIL)
+        .put("aiScholarUsed", aiScholarUsed.coerceAtLeast(0))
+        .put("hifzUsed", hifzUsed.coerceAtLeast(0))
+        .put("scanUsed", scanUsed.coerceAtLeast(0))
+        .put("isPostLoginStep", isPostLoginStep)
+        .put("userEmail", firebaseUser?.email.orEmpty())
+        .put("userName", firebaseUser?.displayName.orEmpty())
+        .put("packageName", context.packageName)
+        .toString()
 }

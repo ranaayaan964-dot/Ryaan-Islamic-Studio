@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#041b15">
+  <title>Ayaan Pro • Today Prayer Time</title>
+  <style>
+    :root{color-scheme:dark;--emerald:#064e3b;--green:#0a7254;--deep:#041b15;--obsidian:#07111a;--gold:#d4af37;--gold-light:#f5d06b;--ivory:#fff8e8;--muted:#b9c9c1;--glass:rgba(255,255,255,.055);--line:rgba(245,208,107,.2);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 70% 0%,#0a4937 0,#041b15 48%,#07111a 100%);color:var(--ivory)}button,input{font:inherit}button{cursor:pointer;color:inherit}.topbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:14px;padding:12px max(16px,calc((100vw - 1200px)/2));background:rgba(4,27,21,.88);border-bottom:1px solid var(--line);backdrop-filter:blur(18px)}.back{border:1px solid var(--line);border-radius:999px;background:var(--glass);padding:10px 14px;white-space:nowrap}.brand{min-width:0;flex:1;font-weight:800;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status{border:1px solid rgba(212,175,55,.48);border-radius:999px;background:rgba(212,175,55,.12);padding:8px 12px;color:var(--gold-light);font-size:.78rem;font-weight:800;white-space:nowrap}.wrap{max-width:1200px;margin:auto;padding:22px 18px 56px}.tabs{position:sticky;top:61px;z-index:4;display:flex;gap:8px;overflow-x:auto;padding:10px 0 15px;background:linear-gradient(var(--deep),rgba(4,27,21,.94));scrollbar-width:thin}.tab{border:1px solid var(--line);border-radius:999px;background:var(--glass);padding:10px 16px;color:var(--muted);white-space:nowrap}.tab[aria-selected=true]{color:#1b281d;background:linear-gradient(110deg,var(--gold-light),var(--gold));border-color:transparent;box-shadow:0 6px 25px rgba(212,175,55,.22);font-weight:900}.workspace{display:none;animation:arrive .24s ease}.workspace.active{display:block}@keyframes arrive{from{opacity:.4;transform:translateY(5px)}to{opacity:1;transform:none}}.hero,.card{border:1px solid var(--line);border-radius:24px;background:linear-gradient(145deg,rgba(255,255,255,.085),rgba(255,255,255,.025));box-shadow:0 20px 55px rgba(0,0,0,.2)}.hero{position:relative;overflow:hidden;padding:clamp(24px,6vw,58px);background:radial-gradient(circle at 85% 12%,rgba(245,208,107,.16),transparent 30%),linear-gradient(145deg,rgba(6,78,59,.92),rgba(7,17,26,.88))}.eyebrow{color:var(--gold-light);text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:900}.hero h1{max-width:850px;margin:12px 0;font-size:clamp(2rem,5vw,4rem);line-height:1.04}.hero p,.card p{color:var(--muted);line-height:1.65}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:18px}.card{padding:22px}.card h2,.card h3{margin:0 0 10px}.feature-list{display:grid;gap:12px;padding:0;list-style:none;color:var(--muted)}.feature-list li{display:flex;gap:10px;align-items:flex-start}.check{color:var(--gold-light);font-weight:900}.meter{margin:17px 0}.meter-head{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:.9rem}.track{height:9px;margin-top:8px;border-radius:20px;background:#ffffff16;overflow:hidden}.fill{height:100%;width:0;border-radius:20px;background:linear-gradient(90deg,var(--gold),#f5d06b,var(--green));transition:width .7s ease}.button{border:0;border-radius:14px;background:linear-gradient(110deg,var(--gold-light),var(--gold));color:#1b281d;font-weight:900;padding:13px 18px;box-shadow:0 9px 22px rgba(212,175,55,.15)}.button.secondary{color:var(--ivory);border:1px solid var(--line);background:rgba(255,255,255,.06);box-shadow:none}.button.full{width:100%}.button:disabled{opacity:.6;cursor:wait}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}.ad-card{background:linear-gradient(125deg,rgba(212,175,55,.13),rgba(6,78,59,.4))}.pricing{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:18px 0}.tier{position:relative;text-align:left;border:1px solid var(--line);border-radius:20px;background:rgba(255,255,255,.045);padding:20px;transition:.2s}.tier.selected{border-color:var(--gold-light);box-shadow:0 0 0 2px rgba(245,208,107,.2),0 12px 35px #0004;background:rgba(212,175,55,.1)}.tier strong{display:block;font-size:1.4rem;margin:9px 0}.tier small{color:var(--muted)}.ribbon{position:absolute;right:10px;top:-10px;border-radius:999px;background:var(--gold-light);color:#182218;padding:4px 9px;font-size:.65rem;font-weight:900}.mail{font-weight:900;color:var(--gold-light);font-size:1.1rem;overflow-wrap:anywhere}.compare-wrap{overflow:auto;border:1px solid var(--line);border-radius:18px}.compare{width:100%;min-width:620px;border-collapse:collapse}.compare th,.compare td{padding:13px 15px;text-align:left;border-bottom:1px solid rgba(255,255,255,.08)}.compare thead{position:sticky;top:0;background:#09251e}.compare th:last-child{color:var(--gold-light)}.compare td:not(:first-child){white-space:nowrap}.compare-cta{margin-top:16px;display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end}.certificate{border:1px solid var(--gold);background:radial-gradient(circle at top right,rgba(245,208,107,.2),transparent 42%),linear-gradient(145deg,rgba(6,78,59,.9),rgba(7,17,26,.92))}.certificate-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:16px}.label{display:block;color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.1em}.value{display:block;margin-top:5px;font-weight:800;overflow-wrap:anywhere}.input-row{display:flex;gap:9px}.key-input{flex:1;min-width:0;border:1px solid rgba(245,208,107,.35);border-radius:14px;padding:14px;background:#03130f;color:var(--ivory);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;text-transform:uppercase;letter-spacing:.08em}.format{min-height:24px;color:var(--muted);font-size:.83rem;margin:8px 0}.feedback{display:none;margin-top:14px;padding:12px;border-radius:12px;background:rgba(220,70,70,.15);border:1px solid rgba(255,120,120,.35);line-height:1.5}.feedback.show{display:block}.feedback.success{background:rgba(16,185,129,.13);border-color:rgba(16,185,129,.4)}.spinner{display:inline-block;width:15px;height:15px;border:2px solid #14201955;border-top-color:#162318;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-3px;margin-right:8px}@keyframes spin{to{transform:rotate(360deg)}}.notice{border-left:3px solid var(--gold);padding:10px 14px;color:var(--muted);background:rgba(212,175,55,.06);border-radius:0 10px 10px 0}.footer{text-align:center;color:#ffffff65;font-size:.78rem;padding-top:26px}
+    @media(max-width:720px){.topbar{gap:8px;padding:10px}.brand{font-size:.82rem}.status{font-size:.67rem;padding:7px 9px}.wrap{padding:14px 12px 38px}.tabs{top:55px}.grid,.pricing{grid-template-columns:1fr}.card{padding:18px}.hero{padding:24px 20px}.compare-cta .button{flex:1}.certificate-grid{grid-template-columns:1fr}.input-row{flex-direction:column}.input-row .button{width:100%}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <button class="back" type="button" onclick="bridge('goBack')">← Back</button>
+    <svg aria-hidden="true" width="25" height="25" viewBox="0 0 24 24" fill="none"><path d="M12 1.8 14.5 8l6.7.5-5.1 4.4 1.6 6.5-5.7-3.5-5.7 3.5 1.6-6.5-5.1-4.4L9.5 8 12 1.8Z" stroke="#f5d06b" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12" cy="12" r="10.3" stroke="#d4af37" stroke-width=".8"/></svg>
+    <div class="brand">Ayaan Islamic Studio • Today Prayer Time</div>
+    <div id="accountStatus" class="status" aria-live="polite">FREE PLAN</div>
+  </header>
+  <main class="wrap">
+    <nav class="tabs" role="tablist" aria-label="Subscription options">
+      <button class="tab" id="tab-free" role="tab" aria-controls="section-free" aria-selected="true">🆓 Free Plan</button>
+      <button class="tab" id="tab-pro" role="tab" aria-controls="section-pro" aria-selected="false">👑 Pro Plan</button>
+      <button class="tab" id="tab-compare" role="tab" aria-controls="section-compare" aria-selected="false">⚖️ Compare</button>
+      <button class="tab" id="tab-activator" role="tab" aria-controls="section-activator" aria-selected="false">🔑 Key Activator</button>
+    </nav>
+
+    <section class="workspace active" id="section-free" role="tabpanel" aria-labelledby="tab-free">
+      <div class="hero">
+        <div class="eyebrow">Ayaan Islamic Studio • Today Prayer Time</div>
+        <h1>Everything essential for your daily practice.</h1>
+        <p>Begin with a complete collection of worship tools, Quran study and prayer utilities—available on the free plan.</p>
+        <div class="actions"><button class="button" type="button" onclick="bridge('continueWithFree')">Continue with Free Plan</button></div>
+      </div>
+      <div class="grid">
+        <article class="card">
+          <h2>Included with Free</h2>
+          <ul class="feature-list">
+            <li><span class="check">✓</span><span>Unlimited 30-Para, 114-Surah Noble Quran in Arabic, Urdu and English.</span></li>
+            <li><span class="check">✓</span><span>Exact Today Prayer Times, 3-Stage Adhan Alarms and Auto-Silent.</span></li>
+            <li><span class="check">✓</span><span>Pure 3D AR Qibla, Kids Cinema, Habit and Qaza Trackers, and Global Dua Wall.</span></li>
+          </ul>
+        </article>
+        <article class="card">
+          <h2>Today's usage</h2>
+          <p>Remaining daily uses update from your account.</p>
+          <div class="meter"><div class="meter-head"><span>AI Scholar</span><strong id="scholarCount">5 / 5 remaining</strong></div><div class="track"><div class="fill" id="scholarFill"></div></div></div>
+          <div class="meter"><div class="meter-head"><span>AI Hifz &amp; Live Tutor</span><strong id="hifzCount">3 / 3 remaining</strong></div><div class="track"><div class="fill" id="hifzFill"></div></div></div>
+          <div class="meter"><div class="meter-head"><span>Arabic OCR &amp; Dream Tabeer</span><strong id="scanCount">2 / 2 remaining</strong></div><div class="track"><div class="fill" id="scanFill"></div></div></div>
+        </article>
+        <article class="card ad-card">
+          <h2>Support the app, unlock a little extra</h2>
+          <p>Watch a short rewarded video to receive two bonus AI Scholar uses.</p>
+          <button class="button" type="button" onclick="bridge('watchRewardedAd')">🎬 Watch Short Video Ad (+2 Bonus Uses)</button>
+          <p class="label" style="margin-top:10px">Reward placement: BP_Rewarded_Android</p>
+        </article>
+        <article class="card">
+          <h2>Ready to continue?</h2>
+          <p>Your free plan keeps the essentials accessible. You can compare plans or activate a key at any time.</p>
+          <div class="actions">
+            <button class="button" type="button" onclick="bridge('continueWithFree')">Continue with Free Plan</button>
+            <button class="button secondary" type="button" data-open="compare">Compare plans</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="workspace" id="section-pro" role="tabpanel" aria-labelledby="tab-pro">
+      <div class="hero">
+        <div class="eyebrow">Ayaan Pro Unlimited</div>
+        <h1>Your practice, without limits.</h1>
+        <p>One account-bound key unlocks a focused, ad-free experience with deeper study tools and offline access.</p>
+        <div class="grid">
+          <div>✦ 100% ad-free: zero Unity banners or interstitials</div>
+          <div>✦ Unlimited AI Scholar &amp; Grand Mufti</div>
+          <div>✦ Unlimited 30-Juz AI Hifz &amp; Live Tajweed Tutor</div>
+          <div>✦ Unlimited Arabic Calligraphy OCR &amp; Ibn Sirin Dream Tabeer</div>
+          <div>✦ Full 30-Para offline database (6,236 Ayahs)</div>
+          <div>✦ Official A4 Zakat PDF &amp; priority admin support</div>
+        </div>
+      </div>
+      <div class="pricing" aria-label="Pro pricing tiers">
+        <button class="tier" type="button" data-tier="PRO_WEEKLY" aria-pressed="false"><span>Weekly Pro</span><strong>Rs. 1,000</strong><small>7 days • PKR</small></button>
+        <button class="tier selected" type="button" data-tier="PRO_MONTHLY" aria-pressed="true"><span class="ribbon">MOST POPULAR</span><span>Monthly Pro</span><strong>Rs. 3,000</strong><small>30 days • PKR</small></button>
+        <button class="tier" type="button" data-tier="PRO_YEARLY" aria-pressed="false"><span>Yearly Pro</span><strong>Rs. 25,000</strong><small>365 days • BEST VALUE • Save Rs. 11,000</small></button>
+      </div>
+      <article class="card">
+        <div class="eyebrow">Official order desk</div>
+        <h2>Get your selected plan</h2>
+        <p>Contact our support team to purchase a single-use Pro key for the plan shown below.</p>
+        <div class="mail" id="supportEmail">ranasalar964@gmail.com</div>
+        <p id="selectedPlan">Monthly Pro • Rs. 3,000 PKR • 30 days</p>
+        <div class="actions">
+          <button class="button" type="button" onclick="bridge('emailToBuy',selectedTier)">📧 Email Now to Buy Selected Plan</button>
+          <button class="button secondary" type="button" onclick="bridge('copyText',supportEmailText)">📋 Copy Support Email</button>
+          <button class="button secondary" type="button" data-open="activator">Already Have a Key? Open Key Activator →</button>
+        </div>
+      </article>
+    </section>
+
+    <section class="workspace" id="section-compare" role="tabpanel" aria-labelledby="tab-compare">
+      <div class="hero">
+        <div class="eyebrow">Choose what fits your journey</div>
+        <h1>Free essentials. Pro freedom.</h1>
+        <p>A clear comparison of the included app features and account-bound Pro access.</p>
+      </div>
+      <div class="compare-wrap" style="margin-top:18px">
+        <table class="compare">
+          <thead><tr><th>Feature</th><th>Free Plan</th><th>👑 Ayaan Pro</th></tr></thead>
+          <tbody>
+            <tr><td>Today Prayer Times &amp; 3-Stage Adhan Alarms</td><td>✅ Included</td><td>✅ Included</td></tr>
+            <tr><td>Noble Quran (30 Paras, Urdu &amp; English)</td><td>✅ Included</td><td>✅ Included</td></tr>
+            <tr><td>Multi-Qari Audio &amp; Kids Cinema</td><td>✅ Included</td><td>✅ Included</td></tr>
+            <tr><td>Unity Banner &amp; Interstitial Ads</td><td>📢 Ad-Supported</td><td>🚫 100% Ad-Free</td></tr>
+            <tr><td>AI Scholar &amp; Grand Mufti</td><td>5 / day</td><td>♾️ Unlimited</td></tr>
+            <tr><td>30-Juz AI Hifz &amp; Live Tajweed Tutor</td><td>3 / day</td><td>♾️ Unlimited</td></tr>
+            <tr><td>Arabic OCR &amp; Dream Tabeer</td><td>2 / day</td><td>♾️ Unlimited</td></tr>
+            <tr><td>Rewarded Ad Bonus Unlocks</td><td>✅ +2 per video</td><td>👑 Not Needed</td></tr>
+            <tr><td>Bulk Download All 30 Paras Offline</td><td>🔒 Pro Only</td><td>✅ Unlimited</td></tr>
+            <tr><td>Official A4 Zakat PDF Certificate</td><td>🔒 Pro Only</td><td>✅ Unlocked</td></tr>
+            <tr><td>Priority Admin Inbox Support</td><td>Standard</td><td>⚡ Priority</td></tr>
+            <tr><td>Single-Use Account License Protection</td><td>—</td><td>🔐 Locked to Account</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="compare-cta">
+        <button class="button secondary" type="button" data-open="free">Choose Free Plan</button>
+        <button class="button" type="button" data-open="activator">Activate Pro Key</button>
+      </div>
+    </section>
+
+    <section class="workspace" id="section-activator" role="tabpanel" aria-labelledby="tab-activator">
+      <div class="hero">
+        <div class="eyebrow">Single-use account license vault</div>
+        <h1>Activate your Pro key.</h1>
+        <p>Each key is securely bound to the signed-in account after successful activation.</p>
+      </div>
+      <article id="certificate" class="card certificate" hidden style="margin-top:18px">
+        <div class="eyebrow">VERIFIED ACTIVE</div>
+        <h2>Active Pro Membership</h2>
+        <div class="certificate-grid">
+          <div><span class="label">Active plan</span><span class="value" id="certPlan">Ayaan Pro</span></div>
+          <div><span class="label">Remaining days</span><span class="value" id="certDays">—</span></div>
+          <div><span class="label">Activated key</span><span class="value" id="certKey">—</span></div>
+          <div><span class="label">Expiry date</span><span class="value" id="certExpiry">—</span></div>
+        </div>
+      </article>
+      <article class="card" style="margin-top:18px">
+        <h2>Enter your activation key</h2>
+        <p>Type or paste the key exactly as provided. Letters are automatically capitalized.</p>
+        <div class="input-row">
+          <input class="key-input" id="proKeyInput" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="64" placeholder="AYAAN-MNTH-XXXX-XXXX-XXXX" aria-describedby="keyFormat">
+          <button class="button secondary" type="button" id="pasteKey">Paste</button>
+        </div>
+        <div class="format" id="keyFormat" aria-live="polite">Enter a key to check its format.</div>
+        <button class="button full" type="button" id="activateKey">🔑 ACTIVATE PRO KEY NOW</button>
+        <div class="feedback" id="redeemFeedback" role="status" aria-live="polite"></div>
+      </article>
+      <article class="card" style="margin-top:16px">
+        <div class="notice">Keys are single-use and bound to your signed-in account by the app's secure activation service. Never share an unused key publicly.</div>
+        <div class="actions"><button class="button secondary" type="button" data-open="pro">View Pro plans &amp; pricing</button></div>
+      </article>
+    </section>
+    <footer class="footer">Ayaan Islamic Studio • Today Prayer Time</footer>
+  </main>
+  <script>
+    "use strict";
+    const tabs=[...document.querySelectorAll(".tab")],panels=[...document.querySelectorAll(".workspace")];
+    const pricing={PRO_WEEKLY:{name:"Weekly Pro",price:"Rs. 1,000",days:7},PRO_MONTHLY:{name:"Monthly Pro",price:"Rs. 3,000",days:30},PRO_YEARLY:{name:"Yearly Pro",price:"Rs. 25,000",days:365}};
+    let selectedTier="PRO_MONTHLY",supportEmailText="ranasalar964@gmail.com",portalState={};
+    function bridge(method,...args){try{if(window.AyaanProBridge&&typeof window.AyaanProBridge[method]==="function"){window.AyaanProBridge[method](...args);return true}}catch(error){showFeedback(false,"The app could not complete this action. Please try again.");}return false}
+    function openSection(name){const id=name.startsWith("section-")?name:"section-"+name;panels.forEach(panel=>panel.classList.toggle("active",panel.id===id));tabs.forEach(tab=>{const selected=tab.getAttribute("aria-controls")===id;tab.setAttribute("aria-selected",String(selected));if(selected)tab.focus({preventScroll:true})});document.getElementById(id)?.scrollIntoView({block:"start",behavior:"smooth"})}
+    tabs.forEach(tab=>tab.addEventListener("click",()=>openSection(tab.getAttribute("aria-controls"))));
+    document.querySelectorAll("[data-open]").forEach(button=>button.addEventListener("click",()=>openSection(button.dataset.open)));
+    document.querySelectorAll(".tier").forEach(button=>button.addEventListener("click",()=>{selectedTier=button.dataset.tier;document.querySelectorAll(".tier").forEach(tier=>{const active=tier===button;tier.classList.toggle("selected",active);tier.setAttribute("aria-pressed",String(active))});const plan=pricing[selectedTier];document.getElementById("selectedPlan").textContent=plan.name+" • "+plan.price+" PKR • "+plan.days+" days"}));
+    function usageMeter(countId,fillId,used,limit){const remaining=Math.max(0,limit-(Number(used)||0));document.getElementById(countId).textContent=remaining+" / "+limit+" remaining";document.getElementById(fillId).style.width=(remaining/limit*100)+"%"}
+    function formatDate(value){if(!value)return"—";const date=new Date(typeof value==="number"&&value<100000000000?value*1000:value);return Number.isNaN(date.getTime())?"—":new Intl.DateTimeFormat(undefined,{dateStyle:"medium"}).format(date)}
+    window.renderProPortalState=function(state){try{portalState=typeof state==="string"?JSON.parse(state):state||{};const active=Boolean(portalState.isProActive);document.getElementById("accountStatus").textContent=active?"👑 PRO ACTIVE • "+(Number(portalState.remainingDays)||0)+" Days Left":"FREE PLAN";const email=String(portalState.supportEmail||supportEmailText);supportEmailText=email;document.getElementById("supportEmail").textContent=email;usageMeter("scholarCount","scholarFill",portalState.aiScholarUsed,5);usageMeter("hifzCount","hifzFill",portalState.hifzUsed,3);usageMeter("scanCount","scanFill",portalState.scanUsed,2);const cert=document.getElementById("certificate");cert.hidden=!active;if(active){document.getElementById("certPlan").textContent=String(portalState.activePlanName||"Ayaan Pro");document.getElementById("certDays").textContent=String(Number(portalState.remainingDays)||0)+" days";document.getElementById("certKey").textContent=String(portalState.activatedKey||"Account verified");document.getElementById("certExpiry").textContent=String(portalState.expiresAtFormatted||"—")}}catch(error){showFeedback(false,"Account status could not be refreshed.")}};
+    const keyInput=document.getElementById("proKeyInput"),activateButton=document.getElementById("activateKey"),feedback=document.getElementById("redeemFeedback");
+    function keyIsValid(value){return /^[A-Z0-9]{3,12}(?:-[A-Z0-9]{3,12}){2,5}$/.test(value)}
+    function updateKeyFormat(){const value=keyInput.value.trim();const label=document.getElementById("keyFormat");if(!value){label.textContent="Enter a key to check its format.";return false}const valid=keyIsValid(value);label.textContent=valid?"Key format looks valid.":"Check the key format; use the complete code separated by hyphens.";label.style.color=valid?"#76e3b8":"#ffd279";return valid}
+    keyInput.addEventListener("input",()=>{const start=keyInput.selectionStart;keyInput.value=keyInput.value.toUpperCase();if(start!==null)keyInput.setSelectionRange(start,start);updateKeyFormat()});
+    document.getElementById("pasteKey").addEventListener("click",async()=>{try{keyInput.value=(await navigator.clipboard.readText()).trim().toUpperCase();updateKeyFormat()}catch(error){document.getElementById("keyFormat").textContent="Clipboard access is unavailable; paste the key into the field."}});
+    function showFeedback(success,message){feedback.textContent=String(message||"");feedback.classList.toggle("success",Boolean(success));feedback.classList.add("show")}
+    activateButton.addEventListener("click",()=>{const key=keyInput.value.trim().toUpperCase();if(!keyIsValid(key)){updateKeyFormat();showFeedback(false,"Please enter a key in the expected hyphen-separated format.");return}activateButton.disabled=true;const spinner=document.createElement("span");spinner.className="spinner";spinner.setAttribute("aria-hidden","true");activateButton.replaceChildren(spinner,document.createTextNode("Verifying key…"));feedback.classList.remove("show");if(!bridge("redeemProKey",key)){activateButton.disabled=false;activateButton.textContent="🔑 ACTIVATE PRO KEY NOW";showFeedback(false,"Activation is unavailable. Reopen this screen and try again.")}});
+    window.onProKeyRedeemResult=function(success,message,updatedState){activateButton.disabled=false;activateButton.textContent="🔑 ACTIVATE PRO KEY NOW";showFeedback(Boolean(success),message);if(success){keyInput.value="";updateKeyFormat()}if(updatedState){window.renderProPortalState(updatedState)}};
+    window.onProBridgeError=function(message){activateButton.disabled=false;activateButton.textContent="🔑 ACTIVATE PRO KEY NOW";showFeedback(false,message)};
+    window.addEventListener("load",()=>bridge("requestStateRefresh"));
+    window.addEventListener("pageshow",()=>bridge("requestStateRefresh"));
+  </script>
+</body>
+</html>

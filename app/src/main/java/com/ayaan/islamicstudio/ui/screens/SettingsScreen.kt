@@ -618,24 +618,24 @@ fun SettingsScreen(
                     Text("Cancel")
                 }
             }
-
-            @Composable
-            private fun ProfileDetailRow(
-                label: String,
-                value: String,
-                primaryColor: Color,
-                mutedColor: Color
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(label, color = mutedColor, fontSize = 12.sp)
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(value, color = primaryColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                }
-            }
         )
+    }
+}
+
+@Composable
+private fun ProfileDetailRow(
+    label: String,
+    value: String,
+    primaryColor: Color,
+    mutedColor: Color
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = mutedColor, fontSize = 12.sp)
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(value, color = primaryColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
 }

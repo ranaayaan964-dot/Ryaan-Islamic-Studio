@@ -27,21 +27,9 @@ fun GlassCard(
     borderWidth: Dp = 1.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val glassColors = LocalGlassTheme.current
-    val surfaceColor = glassColors.glassCardBackground
-    val strokeColors = glassColors.glassCardBorder
-
-    Box(
-        modifier = modifier
-            .clip(shape)
-            .background(surfaceColor)
-            .border(
-                BorderStroke(
-                    borderWidth,
-                    Brush.linearGradient(strokeColors)
-                ),
-                shape = shape
-            ),
+    HighGraphicsGlassCard(
+        modifier = modifier,
+        shape = shape,
         content = content
     )
 }

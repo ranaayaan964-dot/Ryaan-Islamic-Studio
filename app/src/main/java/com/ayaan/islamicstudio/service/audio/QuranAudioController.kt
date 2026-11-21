@@ -8,6 +8,7 @@ import android.os.IBinder
 import android.util.Log
 import com.ayaan.islamicstudio.data.quran.model.AyahEntity
 import com.ayaan.islamicstudio.data.quran.repository.HifzRepeatMode
+import com.ayaan.islamicstudio.data.quran.repository.QuranReadingPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -60,6 +61,9 @@ object QuranAudioController {
     private val _activeQari = MutableStateFlow(QariId.ALAFASY)
     val activeQari: StateFlow<QariId> = _activeQari.asStateFlow()
 
+    private val _currentQari = MutableStateFlow(QariCatalog.getQariById(QariId.ALAFASY))
+    val currentQari: StateFlow<QariProfile> = _currentQari.asStateFlow()
+
     private val _isOfflineAudio = MutableStateFlow(false)
     val isOfflineAudio: StateFlow<Boolean> = _isOfflineAudio.asStateFlow()
 
@@ -98,7 +102,10 @@ object QuranAudioController {
                     launch { svc.activeAyahNumberFlow.collect { _activeAyahNumber.value = it } }
                     launch { svc.activeSurahNameFlow.collect { _activeSurahName.value = it } }
                     launch { svc.activeSurahArabicFlow.collect { _activeSurahArabic.value = it } }
-                    launch { svc.activeQariFlow.collect { _activeQari.value = it } }
+                    launch { svc.activeQariFlow.collect {
+                        _activeQari.value = it
+                        _currentQari.value = QariCatalog.getQariById(it)
+                    } }
                     launch { svc.isOfflineAudioFlow.collect { _isOfflineAudio.value = it } }
                     launch { svc.playbackSpeedFlow.collect { _playbackSpeed.value = it } }
                     launch { svc.repeatModeFlow.collect { _repeatMode.value = it } }
@@ -176,6 +183,42 @@ object QuranAudioController {
             audioService?.playAyah(surahId, surahName, ayahNumber, totalAyahs, qariId)
         }
         bindService(context)
+    }
+
+    fun playJuzQueue(
+        context: Context,
+        juzNumber: Int,
+        ayahs: List<AyahEntity>,
+        startIndex: Int = 0,
+        qariId: QariId? = null
+    ) {
+        val selectedQari = qariId ?: _activeQari.value
+        if (audioService != null && isBound) {
+            audioService?.playJuzQueue(juzNumber, ayahs, startIndex, selectedQari)
+            return
+        }
+        pendingActions.addLast {
+            audioService?.playJuzQueue(juzNumber, ayahs, startIndex, selectedQari)
+        }
+        bindService(context)
+    }
+
+    fun selectQari(context: Context, qari: QariProfile) {
+        _activeQari.value = qari.id
+        _currentQari.value = qari
+        QuranReadingPreferences(context.applicationContext).setQari(qari.id)
+        if (audioService != null && isBound) {
+            audioService?.selectQari(qari)
+            return
+        }
+        pendingActions.addLast { audioService?.selectQari(qari) }
+        bindService(context)
+    }
+
+    fun changeReciter(context: Context, qariId: String) {
+        val qari = runCatching { QariId.valueOf(qariId.trim().uppercase()) }
+            .getOrElse { QariId.ALAFASY }
+        selectQari(context, QariCatalog.getQariById(qari))
     }
 
     fun playAyahLoop(

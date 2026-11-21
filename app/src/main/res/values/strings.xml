@@ -1,3 +1,5 @@
 <resources>
-    <string name="app_name">Ayaan Islamic Studio</string>
+    <string name="app_name">Ayaan Islamic Studio • Today Prayer Time</string>
+    <string name="app_short_name">Today Prayer Time</string>
+    <string name="brand_name">Ayaan Islamic Studio</string>
 </resources>

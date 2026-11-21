@@ -91,7 +91,7 @@ fun QariSelectionDialog(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "5 World-Renowned Reciters",
+                                text = "8 World-Renowned Reciters",
                                 fontSize = 11.5.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

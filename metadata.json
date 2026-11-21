@@ -1,5 +1,5 @@
 {
-  "name": "Ayaan Islamic Studio",
+  "name": "Ayaan Islamic Studio • Today Prayer Time",
   "description": "Enterprise Islamic Super App with Noble Quran & Tafsir Engine, background ExoPlayer recitations, prayer times, adhan alerts, and Qibla.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

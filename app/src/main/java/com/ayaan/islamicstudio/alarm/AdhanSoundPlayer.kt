@@ -13,6 +13,8 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import com.ayaan.islamicstudio.audio.AudioCacheManager
+import com.ayaan.islamicstudio.audio.IslamicSoundCatalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,68 +49,114 @@ object AdhanSoundPlayer {
         // Trigger vibration
         vibrateDevice(context)
 
-        // Try playing system notification or alarm ringtone first
-        try {
-            var alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            if (alertUri == null) {
-                alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        val adhanSound = IslamicSoundCatalog.getSoundById("standard_adhan")
+        val localFile = AudioCacheManager.getLocalFileForSound(context, adhanSound.id)
+        val mirrors = if (localFile.exists() && localFile.length() >= 8192L) {
+            listOf(android.net.Uri.fromFile(localFile).toString())
+        } else {
+            (listOf(adhanSound.remoteAudioUrl) + adhanSound.fallbackUrls).distinct()
+        }
+        fun playMirror(index: Int) {
+            if (index >= mirrors.size) {
+                playSystemAlarmFallback(context, looping, onComplete)
+                return
             }
-            if (alertUri == null) {
-                alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            }
-
-            if (alertUri != null) {
+            try {
                 val player = MediaPlayer().apply {
                     setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_ALARM)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                             .setLegacyStreamType(AudioManager.STREAM_ALARM)
                             .build()
                     )
-                            setDataSource(context, alertUri)
-                            setWakeMode(context.applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
+                    setWakeMode(context.applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
                     @Suppress("DEPRECATION")
                     setAudioStreamType(AudioManager.STREAM_ALARM)
+                    setDataSource(context, android.net.Uri.parse(mirrors[index]))
                     isLooping = looping
-                    if (!looping) {
-                        setOnCompletionListener {
+                    setOnCompletionListener {
+                        if (!looping) {
                             stopAdhan()
                             onComplete?.invoke()
                         }
                     }
                     setOnPreparedListener { preparedPlayer ->
-                        if (isPlaying && mediaPlayer === preparedPlayer) {
-                            preparedPlayer.start()
-                        } else {
-                            preparedPlayer.release()
-                        }
+                        if (isPlaying && mediaPlayer === preparedPlayer) preparedPlayer.start()
+                        else preparedPlayer.release()
                     }
-                    setOnErrorListener { failedPlayer, what, extra ->
-                        Log.e(TAG, "System alarm audio failed: what=$what extra=$extra")
-                        val shouldFallback = mediaPlayer === failedPlayer && isPlaying
-                        if (shouldFallback) {
-                            mediaPlayer = null
-                        }
+                    setOnErrorListener { failedPlayer, _, _ ->
                         failedPlayer.release()
-                        if (shouldFallback) {
-                            playMelodicChime(looping = looping, onComplete = onComplete)
-                        }
+                        if (mediaPlayer === failedPlayer) mediaPlayer = null
+                        if (isPlaying) playMirror(index + 1)
                         true
                     }
                 }
                 mediaPlayer = player
                 player.prepareAsync()
-                return
+                if (localFile.length() < 8192L) {
+                    AudioCacheManager.downloadAndCacheSound(context, adhanSound)
+                }
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not start Adhan MP3 mirror.", error)
+                playMirror(index + 1)
             }
-        } catch (e: Exception) {
-            mediaPlayer?.release()
-            mediaPlayer = null
-            Log.e(TAG, "Failed playing standard ringtone: ${e.message}, falling back to melodic chime")
         }
+        playMirror(0)
+    }
 
-        // Fallback: Synthesize a peaceful multi-tone adhan melody via AudioTrack
-        playMelodicChime(looping = looping, onComplete = onComplete)
+    private fun playSystemAlarmFallback(
+        context: Context,
+        looping: Boolean,
+        onComplete: (() -> Unit)?
+    ) {
+        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        if (uri == null) {
+            isPlaying = false
+            restoreAlarmVolume()
+            onComplete?.invoke()
+            return
+        }
+        try {
+            val player = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setLegacyStreamType(AudioManager.STREAM_ALARM)
+                        .build()
+                )
+                setDataSource(context, uri)
+                setWakeMode(context.applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
+                isLooping = looping
+                setOnCompletionListener {
+                    if (!looping) {
+                        stopAdhan()
+                        onComplete?.invoke()
+                    }
+                }
+                setOnPreparedListener { preparedPlayer ->
+                    if (isPlaying && mediaPlayer === preparedPlayer) preparedPlayer.start()
+                    else preparedPlayer.release()
+                }
+                setOnErrorListener { failedPlayer, _, _ ->
+                    failedPlayer.release()
+                    if (mediaPlayer === failedPlayer) mediaPlayer = null
+                    isPlaying = false
+                    restoreAlarmVolume()
+                    onComplete?.invoke()
+                    true
+                }
+            }
+            mediaPlayer = player
+            player.prepareAsync()
+        } catch (error: Exception) {
+            Log.w(TAG, "System alarm fallback could not start.", error)
+            isPlaying = false
+            restoreAlarmVolume()
+            onComplete?.invoke()
+        }
     }
 
     private fun playMelodicChime(looping: Boolean = false, onComplete: (() -> Unit)?) {

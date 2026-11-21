@@ -51,6 +51,8 @@ app/build/
 local.properties
 .env
 *.key
+*.jks
+*firebase-adminsdk*.json
 .dev.env.json
 debug.keystore
 debug.keystore.base64

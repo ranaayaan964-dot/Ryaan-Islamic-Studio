@@ -45,7 +45,7 @@ class ExampleRobolectricTest {
   @Test
   fun `read string from context`() {
     val appName = context.getString(R.string.app_name)
-    assertEquals("Ayaan Islamic Studio", appName)
+    assertEquals("Ayaan Islamic Studio • Today Prayer Time", appName)
   }
 
   @Test
@@ -61,9 +61,9 @@ class ExampleRobolectricTest {
   fun `insert user credentials stores session properly`() = runBlocking {
     val user = UserEntity(
       id = 1L,
-      username = "ryaan",
+      username = "ayaan",
       passwordHash = "test-password-hash",
-      fullName = "Ryaan Usman",
+      fullName = "Ayaan Usman",
       email = "ranaayaan964@gmail.com",
       sessionToken = "session_token_123",
       isLoggedIn = true
@@ -72,7 +72,7 @@ class ExampleRobolectricTest {
 
     val storedUser = userDao.getCurrentUser()
     assertNotNull(storedUser)
-    assertEquals("ryaan", storedUser?.username)
+    assertEquals("ayaan", storedUser?.username)
     assertEquals("test-password-hash", storedUser?.passwordHash)
     assertTrue(storedUser?.isLoggedIn == true)
 
@@ -85,7 +85,7 @@ class ExampleRobolectricTest {
   fun `logout updates session to not logged in`() = runBlocking {
     val user = UserEntity(
       id = 1L,
-      username = "ryaan",
+      username = "ayaan",
       passwordHash = "test-password-hash",
       isLoggedIn = true,
       sessionToken = "token_abc"

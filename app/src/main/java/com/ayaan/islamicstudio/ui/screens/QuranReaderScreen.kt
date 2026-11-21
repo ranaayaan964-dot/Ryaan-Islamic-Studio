@@ -288,6 +288,30 @@ fun QuranReaderScreen(
 
         try {
             val surahInfo = QuranJsonApi.ALL_114_SURAHS.first { it.number == ayah.surahNumber }
+            if (isJuzMode) {
+                val juzEntities = juzAyahs.map { juzAyah ->
+                    AyahEntity(
+                        globalVerseNumber = juzAyah.globalNumber,
+                        surahId = juzAyah.surahNumber,
+                        verseNumber = juzAyah.numberInSurah,
+                        textArabic = juzAyah.arabicText,
+                        textEnglishTranslation = juzAyah.englishTranslation,
+                        textUrduTranslation = "",
+                        tafsirIbnKathir = ""
+                    )
+                }
+                val startIndex = juzEntities.indexOfFirst {
+                    it.surahId == ayah.surahNumber && it.verseNumber == ayah.numberInSurah
+                }.coerceAtLeast(0)
+                QuranAudioController.playJuzQueue(
+                    context = context,
+                    juzNumber = currentJuzNumber,
+                    ayahs = juzEntities,
+                    startIndex = startIndex,
+                    qariId = activeQari
+                )
+                return
+            }
             QuranAudioController.playAyah(
                 context = context,
                 surahId = ayah.surahNumber,
@@ -418,7 +442,7 @@ fun QuranReaderScreen(
                                 text = if (isJuzMode) {
                                     JuzCatalog.getJuzById(currentJuzNumber)?.nameArabic ?: "30 Paras"
                                 } else {
-                                    surahDataState?.info?.let { "${it.name} • ${it.numberOfAyahs} Ayahs" } ?: "JSON API Reader"
+                                    surahDataState?.info?.let { "${it.name} â€¢ ${it.numberOfAyahs} Ayahs" } ?: "JSON API Reader"
                                 },
                                 fontSize = 11.sp,
                                 color = SlateMuted
@@ -583,7 +607,7 @@ fun QuranReaderScreen(
                                             color = PlatinumGold, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                                         Text(juz?.nameArabic.orEmpty(), color = PureWhite, fontSize = 22.sp,
                                             modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.End)
-                                        Text("${juz?.startSurahName} ${juz?.startVerse} — ${juz?.endSurahName} ${juz?.endVerse} • ${juz?.totalVersesInJuz} Ayahs",
+                                        Text("${juz?.startSurahName} ${juz?.startVerse} â€” ${juz?.endSurahName} ${juz?.endVerse} â€¢ ${juz?.totalVersesInJuz} Ayahs",
                                             color = PureWhite, fontSize = 12.sp)
                                     }
                                 }
@@ -912,7 +936,7 @@ fun QuranReaderScreen(
                                         color = DeepRoyalEmerald
                                     )
                                     Text(
-                                        text = "${surah.englishNameTranslation} • ${surah.numberOfAyahs} Verses",
+                                        text = "${surah.englishNameTranslation} â€¢ ${surah.numberOfAyahs} Verses",
                                         fontSize = 11.sp,
                                         color = SlateMuted
                                     )
@@ -970,8 +994,8 @@ fun QuranReaderScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text("Para ${juz.id} • ${juz.nameEnglish}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = DeepRoyalEmerald)
-                                Text("${juz.startSurahName} ${juz.startVerse} — ${juz.endSurahName} ${juz.endVerse}", fontSize = 11.sp, color = SlateMuted)
+                                Text("Para ${juz.id} â€¢ ${juz.nameEnglish}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = DeepRoyalEmerald)
+                                Text("${juz.startSurahName} ${juz.startVerse} â€” ${juz.endSurahName} ${juz.endVerse}", fontSize = 11.sp, color = SlateMuted)
                             }
                             Text(juz.nameArabic, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = CharcoalPrimary)
                         }

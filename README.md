@@ -1,4 +1,4 @@
-# 🕌 Ayaan Islamic Studio
+# 🕌 Ayaan Islamic Studio • Today Prayer Time
 ### **Created with Pure Dedication, Hard Work & Love for the Ummah by Ayaan**
 **Powered by Ayaan Studio**
 
