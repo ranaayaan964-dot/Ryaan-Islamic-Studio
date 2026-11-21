@@ -67,6 +67,12 @@ import com.ayaan.islamicstudio.data.repository.SettingsRepository
 import com.ayaan.islamicstudio.security.SessionManager
 import com.ayaan.islamicstudio.util.BatteryOptimizationHelper
 import com.ayaan.islamicstudio.ui.theme.LocalGlassTheme
+import com.ayaan.islamicstudio.ui.theme.CharcoalPrimary
+import com.ayaan.islamicstudio.ui.theme.CrimsonError
+import com.ayaan.islamicstudio.ui.theme.DeepRoyalEmerald
+import com.ayaan.islamicstudio.ui.theme.PlatinumGold
+import com.ayaan.islamicstudio.ui.theme.PureWhite
+import com.ayaan.islamicstudio.ui.theme.SlateMuted
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
@@ -119,8 +125,12 @@ fun SettingsScreen(
         }
     }
 
-    val profileName = user?.fullName?.takeIf(String::isNotBlank) ?: "Name not set"
-    val profileUsername = user?.username?.takeIf(String::isNotBlank) ?: "Username not set"
+    val profileFullName = user?.fullName?.takeIf(String::isNotBlank).orEmpty()
+    val profileName = profileFullName.ifBlank { "Name not set" }
+    val cachedUsername = user?.username?.takeIf(String::isNotBlank).orEmpty()
+    val profileUsername = cachedUsername.ifBlank { "Username not set" }
+    val profileRole = user?.role?.takeIf(String::isNotBlank)
+        ?.replaceFirstChar { it.uppercase() }.orEmpty()
     val profileEmail = firebaseUser?.email?.takeIf(String::isNotBlank)
         ?: user?.email?.takeIf(String::isNotBlank)
         ?: "Email not available"
@@ -278,7 +288,7 @@ fun SettingsScreen(
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = user?.role?.takeIf(String::isNotBlank)?.uppercase(Locale.ROOT) ?: "ACCOUNT",
+                                text = profileRole.uppercase(Locale.ROOT).ifBlank { "ACCOUNT" },
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = themePrimary
@@ -584,7 +594,7 @@ fun SettingsScreen(
             },
             text = {
                 Text(
-                    text = "${profileFullName.ifBlank { "Ayaan" }} (${profileRole.ifBlank { "System Administrator" }}) will be logged out. Your username '@${cachedUsername.ifBlank { "ayaan" }}' will remain securely saved for fast re-login.",
+                    text = "${profileFullName.ifBlank { "Ayaan" }} (${profileRole.ifBlank { "Account" }}) will be logged out. Your username '@${cachedUsername.ifBlank { "ayaan" }}' will remain securely saved for fast re-login.",
                     fontSize = 13.sp,
                     color = SlateMuted
                 )
@@ -606,6 +616,24 @@ fun SettingsScreen(
             dismissButton = {
                 OutlinedButton(onClick = { showLogoutConfirmDialog = false }) {
                     Text("Cancel")
+                }
+            }
+
+            @Composable
+            private fun ProfileDetailRow(
+                label: String,
+                value: String,
+                primaryColor: Color,
+                mutedColor: Color
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(label, color = mutedColor, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(value, color = primaryColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
             }
         )

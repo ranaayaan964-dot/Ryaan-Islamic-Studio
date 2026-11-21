@@ -435,7 +435,7 @@ class GeminiLiveTajweedTutor(context: Context) {
         SpeechRecognizer.ERROR_SERVER -> "The speech recognition service encountered an error. Please try again."
         SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ->
             "The installed speech service does not support Arabic (Saudi Arabia)."
-        SpeechRecognizer.ERROR_LANGUAGE_NOT_AVAILABLE ->
+        ERROR_LANGUAGE_UNAVAILABLE ->
             "Arabic speech data is not installed for the selected speech service."
         else -> "Speech recognition could not continue (error $error). Please start again."
     }
@@ -446,5 +446,6 @@ class GeminiLiveTajweedTutor(context: Context) {
 
     companion object {
         private const val TAG = "GeminiLiveTajweedTutor"
+        private const val ERROR_LANGUAGE_UNAVAILABLE = 13
     }
 }

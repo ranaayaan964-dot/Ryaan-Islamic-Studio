@@ -39,7 +39,7 @@ object UnityRewardedManager {
     ) {
         val appContext = context.applicationContext
         if (ProSubscriptionRepository.getInstance(appContext).proStatusFlow.value.isProActive) return
-        if (!UnityAds.isInitialized()) return
+        if (!UnityAds.isInitialized) return
 
         synchronized(this) {
             if (mutableIsRewardedReady.value || isLoading) return

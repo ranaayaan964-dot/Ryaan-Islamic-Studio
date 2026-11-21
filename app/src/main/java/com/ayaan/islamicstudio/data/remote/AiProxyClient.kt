@@ -126,8 +126,6 @@ object AiProxyClient {
             ?: throw AiProxyException("Firebase authentication token is unavailable.", httpCode = 401)
         val appCheckToken = FirebaseAppCheck.getInstance().getAppCheckToken(false).await().token
             ?: throw AiProxyException("Firebase App Check token is unavailable.", httpCode = 401)
-        val appCheckToken = FirebaseAppCheck.getInstance().getAppCheckToken(false).await().token
-            ?: throw AiProxyException("Firebase App Check token is unavailable.", httpCode = 401)
 
         val requestPayload = JSONObject()
             .put("provider", provider)
@@ -411,6 +409,8 @@ object AiProxyClient {
                 ?: throw AiProxyException("Firebase sign-in is required for transcription.", httpCode = 401)
             val idToken = firebaseUser.getIdToken(true).await().token
                 ?: throw AiProxyException("Firebase authentication token is unavailable.", httpCode = 401)
+            val appCheckToken = FirebaseAppCheck.getInstance().getAppCheckToken(false).await().token
+                ?: throw AiProxyException("Firebase App Check token is unavailable.", httpCode = 401)
 
             val safeExtension = when (mimeType) {
                 "audio/wav" -> "wav"
@@ -499,7 +499,7 @@ object AiProxyClient {
     )
 
     private fun networkFailure(error: Exception): AiProxyException {
-        val cause = generateSequence(error) { it.cause }.toList()
+        val cause = generateSequence<Throwable>(error) { it.cause }.toList()
         val isNetworkFailure = cause.any { it is IOException }
         val offline = cause.any {
             it is UnknownHostException || it is ConnectException ||

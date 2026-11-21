@@ -116,6 +116,10 @@ import com.ayaan.islamicstudio.service.PrayerCountdownEngine
 import com.ayaan.islamicstudio.ui.components.ads.UnityBannerAd
 import com.ayaan.islamicstudio.ui.components.AppVersionManagementDialog
 import com.ayaan.islamicstudio.ui.components.GlassCard
+import com.ayaan.islamicstudio.ui.components.LuxuryAmbientBackdrop
+import com.ayaan.islamicstudio.ui.components.GoldFoilBadge
+import com.ayaan.islamicstudio.ui.components.GlowingIslamicArcGauge
+import com.ayaan.islamicstudio.ui.components.HighGraphicsGlassCard
 import com.ayaan.islamicstudio.ui.components.TestNotificationCard
 import com.ayaan.islamicstudio.ui.components.theme.ThemeSelectionDialog
 import com.ayaan.islamicstudio.ui.components.theme.ThemeSelectorSheet
@@ -334,7 +338,7 @@ fun NextGenDashboardScreen(
         )
     }
 
-    Box(
+    LuxuryAmbientBackdrop(
         modifier = Modifier
             .fillMaxSize()
             .testTag("dashboard_screen")
@@ -346,6 +350,39 @@ fun NextGenDashboardScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "AYAAN ISLAMIC STUDIO",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = FontFamily.Serif,
+                    color = glassColors.textPrimary,
+                    letterSpacing = 2.2.sp,
+                    textAlign = TextAlign.Center
+                )
+                Box(
+                    modifier = Modifier
+                        .padding(top = 7.dp, bottom = 4.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(GoldPrimary.copy(alpha = 0.16f))
+                        .border(1.dp, GoldPrimary.copy(alpha = 0.72f), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "TODAY PRAYER TIME",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = GoldAccent,
+                        letterSpacing = 1.6.sp
+                    )
+                }
+            }
+
             if (isAdmin && onOpenAdminDashboard != null) {
                 Button(
                     onClick = onOpenAdminDashboard,
@@ -1519,7 +1556,7 @@ fun NextGenDashboardScreen(
                         } else Modifier
                     )
             ) {
-                GlassCard(
+                HighGraphicsGlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(26.dp)
                 ) {
@@ -1560,6 +1597,23 @@ fun NextGenDashboardScreen(
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))
+
+                        Box(contentAlignment = Alignment.Center) {
+                            GlowingIslamicArcGauge(
+                                progress = if (isProgress) 0.82f else 0.58f,
+                                label = countdownState.formattedTime,
+                                sizeDp = 126.dp
+                            )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = countdownState.formattedTime,
+                                    color = glassColors.textPrimary,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 22.sp
+                                )
+                                GoldFoilBadge(text = "NEXT PRAYER")
+                            }
+                        }
 
                         Text(
                             text = countdownState.targetPrayerName,
@@ -2330,6 +2384,8 @@ fun NextGenDashboardScreen(
             )
         }
     }
+}
+
 }
 
 @Composable

@@ -1,5 +1,11 @@
 package com.ayaan.islamicstudio.ui.screens
 
+import android.content.Context
+import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -7,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -30,6 +37,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Refresh
@@ -47,12 +55,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +75,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -79,15 +90,21 @@ import com.ayaan.islamicstudio.data.database.UserEntity
 import com.ayaan.islamicstudio.data.database.UserReportEntity
 import com.ayaan.islamicstudio.data.repository.AdminRepository
 import com.ayaan.islamicstudio.data.repository.ProSubscriptionRepository
+import com.ayaan.islamicstudio.BuildConfig
 import com.ayaan.islamicstudio.ui.theme.DeepRoyalEmerald
 import com.ayaan.islamicstudio.ui.theme.LocalGlassTheme
 import com.ayaan.islamicstudio.ui.theme.PlatinumGold
 import com.ayaan.islamicstudio.ui.components.AppVersionManagementDialog
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
+import org.json.JSONArray
+import org.json.JSONObject
 
 private val AdminTabs = listOf(
     "Overview",
@@ -100,6 +117,207 @@ private val AdminTabs = listOf(
 
 @Composable
 fun AdminDashboardScreen(
+    onOpenUserApp: () -> Unit,
+    onLogout: () -> Unit
+) {
+    val context = LocalContext.current
+    val glassColors = LocalGlassTheme.current
+    val repository = remember(context) { AdminRepository(context) }
+    val proRepository = remember(context) { ProSubscriptionRepository.getInstance(context) }
+    val users by repository.getAllUsersIncludingRemovedFlow().collectAsStateWithLifecycle(emptyList())
+    val messages by repository.observeAllMessages().collectAsStateWithLifecycle(emptyList())
+    val reports by repository.observeAllReports().collectAsStateWithLifecycle(emptyList())
+    val proKeys by proRepository.observeKeys().collectAsStateWithLifecycle(emptyList())
+    val syncSummary by repository.userSyncSummary.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val webViewState = remember { androidx.compose.runtime.mutableStateOf<WebView?>(null) }
+    var isAuthorized by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
+    var showVersionDialog by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableStateOf(0) }
+    var firestoreSyncStatus by remember { mutableStateOf("Verifying") }
+    var authorizationMessage by remember { mutableStateOf("Verifying administrator access…") }
+
+    val bridge = remember(context, repository, proRepository, scope) {
+        AyaanAdminBridge(
+            context = context,
+            repository = repository,
+            proRepository = proRepository,
+            scope = scope,
+            webViewProvider = { webViewState.value },
+            onOpenUserApp = onOpenUserApp,
+            onLogout = onLogout,
+            onOpenVersionManager = { showVersionDialog = true },
+            onModuleChanged = { selectedTab = it }
+        )
+    }
+    bridge.updateSnapshots(
+        users = users,
+        keys = proKeys,
+        messages = messages,
+        reports = reports,
+        syncTotal = syncSummary.total,
+        syncActive = syncSummary.active,
+        syncRemoved = syncSummary.removed,
+    )
+
+    BackHandler(enabled = !isLoading && isAuthorized) {
+        if (selectedTab > 0) {
+            webViewState.value?.evaluateJavascript("window.onHardwareBack&&window.onHardwareBack()", null)
+                ?: onOpenUserApp()
+        } else {
+            onOpenUserApp()
+        }
+    }
+
+    LaunchedEffect(repository) {
+        try {
+            isAuthorized = withContext(Dispatchers.IO) { repository.isAdminSession() }
+            if (isAuthorized) {
+                authorizationMessage = "Administrator access verified."
+                try {
+                    withContext(Dispatchers.IO) {
+                        repository.syncUsersFromFirestore()
+                        repository.syncMessagesForAdmin()
+                        repository.syncReportsForAdmin()
+                        proRepository.syncKeysForAdmin()
+                    }
+                    firestoreSyncStatus = "Connected • synced"
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    firestoreSyncStatus = "Sync unavailable"
+                    authorizationMessage = "Administrator access verified; cloud sync failed: " +
+                        (error.localizedMessage ?: "try syncing again.")
+                }
+            } else {
+                authorizationMessage = "Access denied. Sign in with an authorized Firebase administrator account."
+                firestoreSyncStatus = "Not authorized"
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            isAuthorized = false
+            firestoreSyncStatus = "Sync unavailable"
+            authorizationMessage = error.localizedMessage
+                ?: "Administrator verification or data synchronization failed."
+        } finally {
+            isLoading = false
+        }
+    }
+
+    LaunchedEffect(users, proKeys, messages, reports, syncSummary, firestoreSyncStatus, isAuthorized) {
+        if (!isAuthorized) return@LaunchedEffect
+        val snapshot = createAdminDashboardJson(
+            context = context,
+            users = users,
+            keys = proKeys,
+            messages = messages,
+            reports = reports,
+            syncTotal = syncSummary.total,
+            syncActive = syncSummary.active,
+            syncRemoved = syncSummary.removed,
+            firestoreSyncStatus = firestoreSyncStatus
+        )
+        webViewState.value?.post {
+            webViewState.value?.evaluateJavascript("window.renderAdminDashboard($snapshot)", null)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewState.value?.apply {
+                removeJavascriptInterface("AyaanAdminBridge")
+                stopLoading()
+                loadUrl("about:blank")
+                destroy()
+            }
+            webViewState.value = null
+        }
+    }
+
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(glassColors.background)
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+        containerColor = Color(0xFF070E18)
+    ) { insets ->
+        when {
+            isLoading -> Box(
+                Modifier.fillMaxSize().padding(insets).background(Color(0xFF070E18)),
+                contentAlignment = Alignment.Center
+            ) {
+                AdminSurfaceCard(
+                    Modifier.fillMaxWidth().padding(24.dp)
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        CircularProgressIndicator(color = PlatinumGold)
+                        Text(authorizationMessage, color = Color.White)
+                    }
+                }
+            }
+            !isAuthorized -> Column(
+                Modifier.fillMaxSize().padding(insets).background(Color(0xFF070E18)).padding(24.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                AdminSurfaceCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Administrator Access Denied", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text(authorizationMessage, color = glassColors.textSecondary)
+                        OutlinedButton(onClick = onOpenUserApp) { Text("← Open User App") }
+                    }
+                }
+            }
+            else -> AndroidView(
+                modifier = Modifier.fillMaxSize().padding(insets),
+                factory = { viewContext ->
+                    WebView(viewContext).apply {
+                        setBackgroundColor(android.graphics.Color.parseColor("#070E18"))
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
+                        settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                        settings.javaScriptCanOpenWindowsAutomatically = false
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView,
+                                request: WebResourceRequest
+                            ): Boolean = request.url.scheme != "https" ||
+                                request.url.host != "ayaan-admin.local"
+                        }
+                        addJavascriptInterface(bridge, "AyaanAdminBridge")
+                        webViewState.value = this
+                        val html = viewContext.assets.open("web/admin_panel.html")
+                            .bufferedReader(Charsets.UTF_8)
+                            .use { it.readText() }
+                        loadDataWithBaseURL(
+                            "https://ayaan-admin.local/",
+                            html,
+                            "text/html",
+                            "UTF-8",
+                            null
+                        )
+                    }
+                },
+                update = { webViewState.value = it }
+            )
+        }
+    }
+
+    if (showVersionDialog && isAuthorized) {
+        AppVersionManagementDialog(onDismiss = { showVersionDialog = false })
+    }
+}
+
+@Composable
+private fun AdminDashboardScreenLegacy(
     onOpenUserApp: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -198,6 +416,38 @@ fun AdminDashboardScreen(
                     )
                 }
             } else {
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val isLandscapeLayout = maxWidth >= 720.dp
+                    Row(Modifier.fillMaxSize()) {
+                        if (isLandscapeLayout) {
+                            AdminLandscapeSidebar(
+                                firebaseEmail = firebaseEmail,
+                                usersCount = users.size,
+                                availableKeysCount = proKeys.count { !it.isUsed },
+                                openReportsCount = reports.count { it.status == "OPEN" },
+                                selectedTab = selectedTab,
+                                onSelectTab = { selectedTab = it },
+                                isRefreshing = isRefreshing,
+                                onRefresh = {
+                                    if (!isRefreshing) scope.launch {
+                                        isRefreshing = true
+                                        runCatching { refreshData() }
+                                            .onSuccess { actionMessage = "All administrator data refreshed." }
+                                            .onFailure { actionMessage = it.localizedMessage ?: "Admin data refresh failed." }
+                                        isRefreshing = false
+                                    }
+                                },
+                                onOpenUserApp = onOpenUserApp,
+                                onLogout = onLogout
+                            )
+                        }
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxSize()
+                                .padding(horizontal = if (isLandscapeLayout) 12.dp else 0.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                 AdminHeader(
                     firebaseEmail = firebaseEmail,
                     isRefreshing = isRefreshing,
@@ -291,7 +541,22 @@ fun AdminDashboardScreen(
                             selectedTab = 3
                             showHistory = false
                         },
-                        onRemove = { removeCandidate = it }
+                        onRemove = { removeCandidate = it },
+                        onRestore = { user ->
+                            scope.launch {
+                                runCatching { repository.restoreUser(user) }
+                                    .onSuccess { actionMessage = "User restored and can sign in again." }
+                                    .onFailure { actionMessage = it.localizedMessage ?: "Restore failed." }
+                            }
+                        },
+                        onSubscriptionChange = { user, plan, days ->
+                            scope.launch {
+                                repository.updateUserSubscriptionByAdmin(user, plan, days).fold(
+                                    onSuccess = { actionMessage = if (plan == "FREE") "User returned to Free plan." else "User subscription updated to $plan." },
+                                    onFailure = { actionMessage = it.localizedMessage ?: "Subscription update failed." }
+                                )
+                            }
+                        }
                     )
                         2 -> ProKeysSection(
                         tiers = ProPlanTier.values().toList(),
@@ -381,7 +646,7 @@ fun AdminDashboardScreen(
                                 }
                             }
                     )
-                        else -> ReportsSection(
+                        4 -> ReportsSection(
                         reports = reports,
                         filter = reportFilter,
                         onFilterChange = { reportFilter = it },
@@ -416,9 +681,28 @@ fun AdminDashboardScreen(
                                 }
                             }
                     )
+                        else -> SystemControlsSection(
+                        isRefreshing = isRefreshing,
+                        firebaseEmail = firebaseEmail,
+                        onManageVersion = { showVersionDialog = true },
+                        onRefresh = {
+                            scope.launch {
+                                isRefreshing = true
+                                runCatching { refreshData() }
+                                    .onSuccess { actionMessage = "Full Cloud Firestore re-sync complete." }
+                                    .onFailure { actionMessage = it.localizedMessage ?: "Re-sync failed." }
+                                isRefreshing = false
+                            }
+                        },
+                        onOpenUserApp = onOpenUserApp,
+                        onLogout = onLogout
+                    )
                 }
             }
-        }
+        } // Row
+    } // BoxWithConstraints
+} // authorized else
+        } // outer admin Column
     }
 
     removeCandidate?.let { user ->
@@ -449,6 +733,110 @@ fun AdminDashboardScreen(
                 }
             }
         )
+    }
+
+    if (showVersionDialog) {
+        AppVersionManagementDialog(onDismiss = { showVersionDialog = false })
+    }
+}
+}
+
+@Composable
+private fun AdminLandscapeSidebar(
+    firebaseEmail: String,
+    usersCount: Int,
+    availableKeysCount: Int,
+    openReportsCount: Int,
+    selectedTab: Int,
+    onSelectTab: (Int) -> Unit,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    onOpenUserApp: () -> Unit,
+    onLogout: () -> Unit
+) {
+    val glassColors = LocalGlassTheme.current
+    val navLabels = listOf(
+        "Overview",
+        "All Users",
+        "Pro Keys Vault",
+        "Broadcast & Warnings",
+        "User Reports",
+        "App Version"
+    )
+    Card(
+        modifier = Modifier
+            .width(250.dp)
+            .fillMaxSize()
+            .padding(end = 8.dp),
+        shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+        border = BorderStroke(1.dp, PlatinumGold.copy(alpha = 0.28f))
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("AYAAN STUDIO", color = Color.White, fontWeight = FontWeight.ExtraBold)
+                    StatusBadge("ADMIN CONSOLE", PlatinumGold)
+                    Text(firebaseEmail, color = Color(0xFFCBD5E1), fontSize = 11.sp, maxLines = 1)
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    navLabels.forEachIndexed { index, label ->
+                        val badge = when (index) {
+                            1 -> usersCount.toString()
+                            2 -> availableKeysCount.toString()
+                            4 -> openReportsCount.toString()
+                            else -> null
+                        }
+                        val selected = selectedTab == index
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectTab(index) },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (selected) Color(0xFF065F46) else Color.Transparent
+                            ),
+                            border = if (selected) BorderStroke(1.dp, PlatinumGold) else null
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    label,
+                                    Modifier.weight(1f),
+                                    color = if (selected) Color.White else Color(0xFFCBD5E1),
+                                    fontSize = 13.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                )
+                                badge?.let {
+                                    StatusBadge(it, if (index == 4 && openReportsCount > 0) Color(0xFFB91C1C) else PlatinumGold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = onOpenUserApp, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                    Text(" Back to User App")
+                }
+                OutlinedButton(onClick = onRefresh, enabled = !isRefreshing, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = null)
+                    Text(if (isRefreshing) " Refreshing…" else " Refresh All Data")
+                }
+                OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.Logout, contentDescription = null)
+                    Text(" Sign Out")
+                }
+            }
+        }
     }
 }
 
@@ -554,28 +942,31 @@ private fun OverviewSection(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                modifier = Modifier.fillMaxWidth().height(354.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                userScrollEnabled = false
-            ) {
-                gridItems(metrics) { (label, value) ->
-                    AdminSurfaceCard(Modifier.fillMaxWidth()) {
-                        Column(
-                            Modifier.fillMaxSize().padding(14.dp),
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(label, color = glassColors.textSecondary, fontSize = 12.sp)
-                            Text(
-                                value.toString(),
-                                color = if (label.contains("Pro")) {
-                                    if (glassColors.isDark) PlatinumGold else DeepRoyalEmerald
-                                } else glassColors.textPrimary,
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold
-                            )
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val metricColumns = if (maxWidth >= 720.dp) 3 else 2
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(metricColumns),
+                    modifier = Modifier.fillMaxWidth().height(if (metricColumns == 3) 236.dp else 354.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    userScrollEnabled = false
+                ) {
+                    gridItems(metrics) { (label, value) ->
+                        AdminSurfaceCard(Modifier.fillMaxWidth()) {
+                            Column(
+                                Modifier.fillMaxSize().padding(14.dp),
+                                verticalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(label, color = glassColors.textSecondary, fontSize = 12.sp)
+                                Text(
+                                    value.toString(),
+                                    color = if (label.contains("Pro")) {
+                                        if (glassColors.isDark) PlatinumGold else DeepRoyalEmerald
+                                    } else glassColors.textPrimary,
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
@@ -633,7 +1024,9 @@ private fun UsersSection(
     isSyncing: Boolean,
     onSync: () -> Unit,
     onWarn: (UserEntity) -> Unit,
-    onRemove: (UserEntity) -> Unit
+    onRemove: (UserEntity) -> Unit,
+    onRestore: (UserEntity) -> Unit,
+    onSubscriptionChange: (UserEntity, String, Int) -> Unit
 ) {
     val glassColors = LocalGlassTheme.current
     val visibleUsers = users.filter { user ->
@@ -645,6 +1038,8 @@ private fun UsersSection(
             "Pro" -> isPro
             "Free" -> !isPro
             "Admins" -> user.role.equals("ADMIN", true)
+            "Active" -> !user.isRemoved
+            "Removed" -> user.isRemoved
             else -> true
         }
         matchesSearch && matchesFilter
@@ -656,7 +1051,7 @@ private fun UsersSection(
             modifier = Modifier.fillMaxWidth(),
             placeholder = "Search by name, @username, or email..."
         )
-        AdminChipRow(listOf("All", "Pro", "Free", "Admins"), filter, onFilterChange)
+        AdminChipRow(listOf("All", "Active", "Pro", "Free", "Admins", "Removed"), filter, onFilterChange)
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -695,7 +1090,9 @@ private fun UsersSection(
                             onSelectedUsersChange(if (selected) selectedUsers + key else selectedUsers - key)
                         },
                         onWarn = { onWarn(user) },
-                        onRemove = { onRemove(user) }
+                        onRemove = { onRemove(user) },
+                        onRestore = { onRestore(user) },
+                        onSubscriptionChange = { plan, days -> onSubscriptionChange(user, plan, days) }
                     )
                 }
             }
@@ -709,7 +1106,9 @@ private fun UserCard(
     isSelected: Boolean,
     onSelect: (Boolean) -> Unit,
     onWarn: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onRestore: () -> Unit,
+    onSubscriptionChange: (String, Int) -> Unit
 ) {
     val glassColors = LocalGlassTheme.current
     val name = user.fullName.ifBlank { user.username.ifBlank { user.email } }
@@ -758,16 +1157,36 @@ private fun UserCard(
                 TextButton(onClick = onWarn, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
                     Text("Warn / Direct Message", color = adminAccentColor(), fontSize = 12.sp)
                 }
-                TextButton(
-                    onClick = onRemove,
-                    enabled = !user.role.equals("ADMIN", true),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
-                ) {
-                    Text(
-                        "Remove User",
-                        color = if (user.role.equals("ADMIN", true)) glassColors.textMuted else Color(0xFFB91C1C),
-                        fontSize = 12.sp
-                    )
+                if (user.isRemoved) {
+                    TextButton(onClick = onRestore, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
+                        Text("Restore User", color = DeepRoyalEmerald, fontSize = 12.sp)
+                    }
+                } else {
+                    TextButton(
+                        onClick = onRemove,
+                        enabled = !user.role.equals("ADMIN", true),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Text(
+                            "Remove User",
+                            color = if (user.role.equals("ADMIN", true)) glassColors.textMuted else Color(0xFFB91C1C),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TextButton(onClick = { onSubscriptionChange("PRO_WEEKLY", 7) }, enabled = !user.role.equals("ADMIN", true)) {
+                    Text("Grant 7d", color = PlatinumGold, fontSize = 11.sp)
+                }
+                TextButton(onClick = { onSubscriptionChange("PRO_MONTHLY", 30) }, enabled = !user.role.equals("ADMIN", true)) {
+                    Text("Grant 30d", color = PlatinumGold, fontSize = 11.sp)
+                }
+                TextButton(onClick = { onSubscriptionChange("PRO_YEARLY", 365) }, enabled = !user.role.equals("ADMIN", true)) {
+                    Text("Grant 365d", color = PlatinumGold, fontSize = 11.sp)
+                }
+                TextButton(onClick = { onSubscriptionChange("FREE", 0) }, enabled = !user.role.equals("ADMIN", true)) {
+                    Text("Revoke", color = Color(0xFFB91C1C), fontSize = 11.sp)
                 }
             }
         }
@@ -1139,6 +1558,47 @@ private fun ReportModerationCard(
 }
 
 @Composable
+private fun SystemControlsSection(
+    isRefreshing: Boolean,
+    firebaseEmail: String,
+    onManageVersion: () -> Unit,
+    onRefresh: () -> Unit,
+    onOpenUserApp: () -> Unit,
+    onLogout: () -> Unit
+) {
+    val glassColors = LocalGlassTheme.current
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        AdminSurfaceCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("App Version & System Controls", color = glassColors.textPrimary, fontWeight = FontWeight.Bold)
+                StatusBadge("Verified Admin", DeepRoyalEmerald)
+                Text("Administrator: $firebaseEmail", color = glassColors.textSecondary)
+                Text("Security: Firebase email / custom claim verification", color = glassColors.textSecondary, fontSize = 12.sp)
+                Button(onClick = onManageVersion, modifier = Modifier.fillMaxWidth(), colors = adminButtonColors()) {
+                    Text("Manage App Version")
+                }
+                OutlinedButton(onClick = onRefresh, enabled = !isRefreshing, modifier = Modifier.fillMaxWidth()) {
+                    if (isRefreshing) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text(if (isRefreshing) "  Re-syncing…" else "Full Cloud Firestore Re-Sync")
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onOpenUserApp, modifier = Modifier.weight(1f)) {
+                        Text("← Back to User App")
+                    }
+                    OutlinedButton(onClick = onLogout, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.Logout, contentDescription = null)
+                        Text(" Sign Out")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun AdminSurfaceCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
@@ -1262,3 +1722,372 @@ private fun fullKeyMessage(key: ProLicenseKeyEntity): String =
 
 private fun formatTimestamp(timestamp: Long): String =
     if (timestamp <= 0L) "Not available" else DateFormat.getDateTimeInstance().format(Date(timestamp))
+
+class AyaanAdminBridge(
+    private val context: Context,
+    private val repository: AdminRepository,
+    private val proRepository: ProSubscriptionRepository,
+    private val scope: CoroutineScope,
+    private val webViewProvider: () -> WebView?,
+    private val onOpenUserApp: () -> Unit,
+    private val onLogout: () -> Unit,
+    private val onOpenVersionManager: () -> Unit,
+    private val onModuleChanged: (Int) -> Unit
+) {
+    @Volatile private var users: List<UserEntity> = emptyList()
+    @Volatile private var keys: List<ProLicenseKeyEntity> = emptyList()
+    @Volatile private var messages: List<AdminMessageEntity> = emptyList()
+    @Volatile private var reports: List<UserReportEntity> = emptyList()
+
+    fun updateSnapshots(
+        users: List<UserEntity>,
+        keys: List<ProLicenseKeyEntity>,
+        messages: List<AdminMessageEntity>,
+        reports: List<UserReportEntity>,
+        syncTotal: Int,
+        syncActive: Int,
+        syncRemoved: Int
+    ) {
+        this.users = users
+        this.keys = keys
+        this.messages = messages
+        this.reports = reports
+        latestSyncSummary = JSONObject()
+            .put("total", syncTotal)
+            .put("active", syncActive)
+            .put("removed", syncRemoved)
+    }
+
+    @JavascriptInterface
+    fun refreshAllData() {
+        runAdminAction("All administrator data refreshed.") {
+            syncAll()
+        }
+    }
+
+    @JavascriptInterface
+    fun openUserApp() {
+        val webView = webViewProvider()
+        if (webView != null) webView.post { onOpenUserApp() } else onOpenUserApp()
+    }
+
+    @JavascriptInterface
+    fun logout() {
+        val webView = webViewProvider()
+        if (webView != null) webView.post { onLogout() } else onLogout()
+    }
+
+    @JavascriptInterface
+    fun openVersionManager() {
+        runAdminAction("Version manager opened.") {
+            withContext(Dispatchers.Main) { onOpenVersionManager() }
+        }
+    }
+
+    @JavascriptInterface
+    fun onTabChanged(index: Int) {
+        if (index in 0..5) webViewProvider()?.post { onModuleChanged(index) }
+    }
+
+    @JavascriptInterface
+    fun updateUserPlan(
+        userId: String,
+        username: String,
+        email: String,
+        plan: String,
+        durationDays: Int
+    ) {
+        runAdminAction("User subscription updated.") {
+            val user = findUser(userId, username, email)
+            require(!user.role.equals("ADMIN", ignoreCase = true)) {
+                "Administrator subscriptions cannot be changed here."
+            }
+            val expectedDays = when (plan) {
+                "PRO_WEEKLY" -> 7
+                "PRO_MONTHLY" -> 30
+                "PRO_YEARLY" -> 365
+                "FREE" -> 0
+                else -> throw IllegalArgumentException("Select a valid subscription plan.")
+            }
+            require(durationDays == expectedDays) { "The selected plan duration is invalid." }
+            repository.updateUserSubscriptionByAdmin(user, plan, durationDays).getOrThrow()
+        }
+    }
+
+    @JavascriptInterface
+    fun removeUser(userId: String, username: String, email: String) {
+        runAdminAction("User marked removed.") {
+            val user = findUser(userId, username, email)
+            require(!user.role.equals("ADMIN", ignoreCase = true)) {
+                "Administrator accounts cannot be removed."
+            }
+            repository.removeUser(user)
+        }
+    }
+
+    @JavascriptInterface
+    fun restoreUser(userId: String, username: String, email: String) {
+        runAdminAction("User restored.") {
+            repository.restoreUser(findUser(userId, username, email))
+        }
+    }
+
+    @JavascriptInterface
+    fun generateProKey(tierId: String, buyerNote: String) {
+        runAdminAction("Pro key generated and synced.") {
+            val tier = ProPlanTier.values().firstOrNull { it.tierId == tierId }
+                ?: throw IllegalArgumentException("Select a valid Pro plan.")
+            val key = proRepository.generateProKeyWithGroqAi(tier, buyerNote.trim()).getOrThrow()
+            val response = JSONObject()
+                .put("licenseKey", key.licenseKey)
+                .put("aiNote", key.aiNote)
+                .put("buyerMessage", fullKeyMessage(key))
+            webViewProvider()?.post {
+                webViewProvider()?.evaluateJavascript("window.onProKeyGenerated($response)", null)
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun deleteProKey(licenseKey: String) {
+        runAdminAction("Unused Pro key deleted.") {
+            val key = keys.firstOrNull { it.licenseKey == licenseKey }
+                ?: throw IllegalArgumentException("The selected Pro key is no longer available.")
+            require(!key.isUsed) { "Redeemed keys are locked and cannot be deleted." }
+            proRepository.deleteProKey(key.licenseKey)
+        }
+    }
+
+    @JavascriptInterface
+    fun sendAdminMessage(
+        title: String,
+        body: String,
+        messageType: String,
+        targetAll: Boolean,
+        selectedCsv: String
+    ) {
+        runAdminAction("Message sent successfully.") {
+            require(title.isNotBlank() && body.isNotBlank()) { "Enter both a title and message." }
+            require(messageType in setOf("ANNOUNCEMENT", "WARNING", "DIRECT_MESSAGE")) {
+                "Select a valid message type."
+            }
+            val selected = selectedCsv.split(',')
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .distinct()
+            require(targetAll || selected.isNotEmpty()) { "Select at least one recipient." }
+            repository.sendAdminMessage(title.trim(), body.trim(), messageType, targetAll, selected)
+            withContext(Dispatchers.Main) {
+                webViewProvider()?.evaluateJavascript(
+                    "window.onAdminMessageSent(true,${JSONObject.quote("Message sent successfully.")})",
+                    null
+                )
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun deleteAdminMessage(messageId: String) {
+        runAdminAction("Message deleted.") {
+            require(messages.any { it.id == messageId }) { "The selected message is no longer available." }
+            repository.deleteAdminMessage(messageId)
+        }
+    }
+
+    @JavascriptInterface
+    fun replyToReport(reportId: String, replyText: String, newStatus: String) {
+        runAdminAction("Report updated.") {
+            val report = reports.firstOrNull { it.id == reportId }
+                ?: throw IllegalArgumentException("The selected report is no longer available.")
+            require(newStatus == "IN_PROGRESS" || newStatus == "RESOLVED") {
+                "Select a valid report status."
+            }
+            require(newStatus != "RESOLVED" || replyText.isNotBlank()) {
+                "Add a reply before resolving the report."
+            }
+            repository.replyAndResolveReport(report, newStatus, replyText.trim())
+        }
+    }
+
+    @JavascriptInterface
+    fun deleteReport(reportId: String) {
+        runAdminAction("Report deleted.") {
+            require(reports.any { it.id == reportId }) { "The selected report is no longer available." }
+            repository.deleteUserReport(reportId)
+        }
+    }
+
+    @JavascriptInterface
+    fun copyText(text: String) {
+        webViewProvider()?.post {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Ayaan Admin", text))
+            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun findUser(userId: String, username: String, email: String): UserEntity {
+        require(userId.isNotBlank() || username.isNotBlank() || email.isNotBlank()) {
+            "User identity is missing."
+        }
+        return users.firstOrNull { user ->
+            val idMatches = userId.isBlank() ||
+                user.firebaseUid.equals(userId, ignoreCase = true) ||
+                user.username.equals(userId, ignoreCase = true)
+            val usernameMatches = username.isBlank() || user.username.equals(username, ignoreCase = true)
+            val emailMatches = email.isBlank() || user.email.equals(email, ignoreCase = true)
+            idMatches && usernameMatches && emailMatches
+        } ?: throw IllegalArgumentException("That user is not present in the current administrator snapshot.")
+    }
+
+    private suspend fun syncAll() {
+        repository.syncUsersFromFirestore()
+        repository.syncMessagesForAdmin()
+        repository.syncReportsForAdmin()
+        proRepository.syncKeysForAdmin()
+    }
+
+    private fun runAdminAction(
+        successMessage: String,
+        action: suspend () -> Unit
+    ) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                check(repository.isAdminSession()) {
+                    "Administrator authorization expired. Please sign in again."
+                }
+                action()
+                dispatchResult(success = true, message = successMessage)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                dispatchResult(
+                    success = false,
+                    message = error.localizedMessage ?: "The administrator action failed."
+                )
+            }
+        }
+    }
+
+    private fun dispatchResult(success: Boolean, message: String) {
+        val quotedMessage = JSONObject.quote(message)
+        webViewProvider()?.post {
+            webViewProvider()?.evaluateJavascript(
+                "window.onAdminActionResult($success,$quotedMessage)",
+                null
+            )
+        }
+    }
+}
+
+private fun createAdminDashboardJson(
+    context: Context,
+    users: List<UserEntity>,
+    keys: List<ProLicenseKeyEntity>,
+    messages: List<AdminMessageEntity>,
+    reports: List<UserReportEntity>,
+    syncTotal: Int,
+    syncActive: Int,
+    syncRemoved: Int,
+    firestoreSyncStatus: String
+): String {
+    val userJson = JSONArray().apply {
+        users.forEach { user ->
+            put(
+                JSONObject()
+                    .put("id", user.id)
+                    .put("username", user.username)
+                    .put("fullName", user.fullName)
+                    .put("email", user.email)
+                    .put("role", user.role)
+                    .put("firebaseUid", user.firebaseUid)
+                    .put("authProvider", user.authProvider)
+                    .put("createdAt", user.createdAt)
+                    .put("isRemoved", user.isRemoved)
+                    .put("activitySummary", user.activitySummary)
+                    .put("subscriptionPlan", user.subscriptionPlan)
+                    .put("proExpiresAt", user.proExpiresAt)
+                    .put("activatedProKey", user.activatedProKey)
+                    .put("loginTimestamp", user.loginTimestamp)
+            )
+        }
+    }
+    val keyJson = JSONArray().apply {
+        keys.forEach { key ->
+            put(
+                JSONObject()
+                    .put("licenseKey", key.licenseKey)
+                    .put("planTier", key.planTier)
+                    .put("durationDays", key.durationDays)
+                    .put("pricePkr", key.pricePkr)
+                    .put("isUsed", key.isUsed)
+                    .put("usedByUsername", key.usedByUsername)
+                    .put("usedByEmail", key.usedByEmail)
+                    .put("usedByUid", key.usedByUid)
+                    .put("createdAt", key.createdAt)
+                    .put("activatedAt", key.activatedAt)
+                    .put("expiresAt", key.expiresAt)
+                    .put("aiNote", key.aiNote)
+            )
+        }
+    }
+    val messageJson = JSONArray().apply {
+        messages.forEach { message ->
+            put(
+                JSONObject()
+                    .put("id", message.id)
+                    .put("title", message.title)
+                    .put("body", message.body)
+                    .put("messageType", message.messageType)
+                    .put("targetAll", message.targetAll)
+                    .put("targetUsersCsv", message.targetUsersCsv)
+                    .put("senderName", message.senderName)
+                    .put("senderUid", message.senderUid)
+                    .put("timestamp", message.timestamp)
+            )
+        }
+    }
+    val reportJson = JSONArray().apply {
+        reports.forEach { report ->
+            put(
+                JSONObject()
+                    .put("id", report.id)
+                    .put("reporterUid", report.reporterUid)
+                    .put("reporterUsername", report.reporterUsername)
+                    .put("reporterEmail", report.reporterEmail)
+                    .put("reporterFullName", report.reporterFullName)
+                    .put("category", report.category)
+                    .put("subject", report.subject)
+                    .put("description", report.description)
+                    .put("status", report.status)
+                    .put("adminReply", report.adminReply)
+                    .put("timestamp", report.timestamp)
+                    .put("isSynced", report.isSynced)
+            )
+        }
+    }
+    val adminEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
+    val systemJson = JSONObject()
+        .put("appVersion", BuildConfig.VERSION_NAME)
+        .put("packageName", context.packageName)
+        .put("adminEmail", adminEmail)
+        .put("customClaimStatus", "AdminRepository verified the email allowlist or admin claim")
+        .put("firestoreSyncStatus", firestoreSyncStatus)
+        .put("unityAdsStatus", if (BuildConfig.UNITY_GAME_ID.isBlank()) "Not configured" else "Configured")
+        .put("aiStatus", "Gemini + Groq failover engine")
+        .put("roomVersion", "6")
+    return JSONObject()
+        .put("users", userJson)
+        .put("proKeys", keyJson)
+        .put("messages", messageJson)
+        .put("reports", reportJson)
+        .put(
+            "syncSummary",
+            JSONObject()
+                .put("total", syncTotal)
+                .put("active", syncActive)
+                .put("removed", syncRemoved)
+        )
+        .put("system", systemJson)
+        .toString()
+}
